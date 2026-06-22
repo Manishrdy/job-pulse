@@ -46,12 +46,33 @@ def role_breakdown(conn: sqlite3.Connection, target_roles: list[str]) -> list[di
     return out
 
 
-def applications_per_day(conn: sqlite3.Connection) -> list[dict]:
-    """Applications grouped by calendar day, newest first (FR-07.2)."""
-    rows = conn.execute(
-        "SELECT DATE(applied_at) AS day, COUNT(*) AS count "
-        "FROM applied_jobs GROUP BY day ORDER BY day DESC"
-    ).fetchall()
+def _cutoff(days: int, now: datetime | None) -> str:
+    reference = now if now is not None else datetime.now(UTC)
+    return (reference.astimezone(UTC) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def applications_per_day(
+    conn: sqlite3.Connection,
+    *,
+    days: int | None = None,
+    now: datetime | None = None,
+) -> list[dict]:
+    """Applications grouped by calendar day, newest first (FR-07.2).
+
+    When ``days`` is given, only applications within the last ``days`` are
+    included (date-range filter).
+    """
+    if days is not None:
+        rows = conn.execute(
+            "SELECT DATE(applied_at) AS day, COUNT(*) AS count FROM applied_jobs "
+            "WHERE datetime(applied_at) >= datetime(?) GROUP BY day ORDER BY day DESC",
+            (_cutoff(days, now),),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT DATE(applied_at) AS day, COUNT(*) AS count "
+            "FROM applied_jobs GROUP BY day ORDER BY day DESC"
+        ).fetchall()
     return [{"day": r["day"], "count": r["count"]} for r in rows]
 
 
@@ -80,12 +101,27 @@ def status_funnel(conn: sqlite3.Connection) -> list[dict]:
     return [{"status": r["status"], "count": r["count"]} for r in rows]
 
 
-def scrape_trends(conn: sqlite3.Connection) -> list[dict]:
-    """Jobs inserted per day from scrape runs, oldest first (FR-07.5)."""
-    rows = conn.execute(
-        "SELECT DATE(run_at) AS day, SUM(jobs_inserted) AS inserted "
-        "FROM scrape_runs GROUP BY day ORDER BY day ASC"
-    ).fetchall()
+def scrape_trends(
+    conn: sqlite3.Connection,
+    *,
+    days: int | None = None,
+    now: datetime | None = None,
+) -> list[dict]:
+    """Jobs inserted per day from scrape runs, oldest first (FR-07.5).
+
+    When ``days`` is given, only runs within the last ``days`` are included.
+    """
+    if days is not None:
+        rows = conn.execute(
+            "SELECT DATE(run_at) AS day, SUM(jobs_inserted) AS inserted FROM scrape_runs "
+            "WHERE datetime(run_at) >= datetime(?) GROUP BY day ORDER BY day ASC",
+            (_cutoff(days, now),),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT DATE(run_at) AS day, SUM(jobs_inserted) AS inserted "
+            "FROM scrape_runs GROUP BY day ORDER BY day ASC"
+        ).fetchall()
     return [{"day": r["day"], "inserted": r["inserted"] or 0} for r in rows]
 
 
@@ -93,12 +129,15 @@ def summary(
     conn: sqlite3.Connection,
     target_roles: list[str],
     *,
+    days: int | None = None,
     now: datetime | None = None,
 ) -> dict:
     """All analytics data plus summary cards in one payload.
 
     Cards: total active jobs, total applied, applications in the last 7
-    days, and response rate (responded / total applied).
+    days, and response rate (responded / total applied). When ``days`` is
+    given, the time-series sections (applications-per-day, scrape-trends)
+    are scoped to that window; the cards remain whole-history.
     """
     total_active = conn.execute(
         "SELECT COUNT(*) AS c FROM jobs WHERE status = 'active' AND is_blocked = 0"
@@ -126,9 +165,10 @@ def summary(
             "applications_this_week": applications_this_week,
             "response_rate": response_rate,
         },
+        "days": days,
         "role_breakdown": role_breakdown(conn, target_roles),
-        "applications_per_day": applications_per_day(conn),
+        "applications_per_day": applications_per_day(conn, days=days, now=now),
         "ats_breakdown": ats_breakdown(conn),
         "status_funnel": status_funnel(conn),
-        "scrape_trends": scrape_trends(conn),
+        "scrape_trends": scrape_trends(conn, days=days, now=now),
     }

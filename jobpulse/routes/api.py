@@ -169,8 +169,9 @@ def remove_blocklist(block_id: int, conn: sqlite3.Connection = Depends(get_db)) 
 def analytics_summary(
     conn: sqlite3.Connection = Depends(get_db),
     config: AppConfig = Depends(get_config),
+    days: int | None = Query(None, ge=1),
 ) -> dict:
-    return analytics_service.summary(conn, config.target_roles)
+    return analytics_service.summary(conn, config.target_roles, days=days)
 
 
 @router.get("/scrape-runs")

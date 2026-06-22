@@ -169,6 +169,27 @@ a:hover { text-decoration: underline; }
 .logs-table th, .logs-table td { white-space: nowrap; }
 .saved-tag { color: var(--green); font-weight: 700; margin-left: 6px; }
 
+/* Analytics */
+.range-selector { display: flex; gap: 6px; flex-wrap: wrap; }
+.range-pill { padding: 5px 11px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--muted); background: #fff; }
+.range-pill:hover { text-decoration: none; border-color: var(--accent); color: var(--accent); }
+.range-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+.card-value { font-size: 28px; font-weight: 700; color: var(--text); }
+.card-label { font-size: 12px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .03em; }
+
+.charts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 16px; }
+.chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
+.chart-box h2 { font-size: 14px; margin: 0 0 14px; color: var(--text); }
+.chart-box canvas { width: 100% !important; height: 260px !important; }
+
+@media (max-width: 780px) {
+  .cards { grid-template-columns: repeat(2, 1fr); }
+  .charts-grid { grid-template-columns: 1fr; }
+}
+
 /* Status pills (scrape logs) */
 .status { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .status-success { background: #e7f6ec; color: var(--green); }

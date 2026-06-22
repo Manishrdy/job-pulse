@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Analytics · JobPulse{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Analytics</h1>
+  <div class="range-selector">
+    {% for label, val in range_presets %}
+      <a class="range-pill {% if selected_days == val %}active{% endif %}"
+         href="/analytics{% if val %}?days={{ val }}{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{# Summary cards #}
+<div class="cards">
+  <div class="card"><div class="card-value">{{ data.cards.total_active_jobs }}</div><div class="card-label">Active jobs</div></div>
+  <div class="card"><div class="card-value">{{ data.cards.total_applied }}</div><div class="card-label">Total applied</div></div>
+  <div class="card"><div class="card-value">{{ data.cards.applications_this_week }}</div><div class="card-label">Applied this week</div></div>
+  <div class="card"><div class="card-value">{{ '%.0f'|format(data.cards.response_rate * 100) }}%</div><div class="card-label">Response rate</div></div>
+</div>
+
+{% if data.cards.total_applied == 0 and data.cards.total_active_jobs == 0 %}
+  <div class="empty-state">
+    <p>No data yet. Run a scrape and start applying to see analytics.</p>
+  </div>
+{% endif %}
+
+<div class="charts-grid">
+  <section class="chart-box">
+    <h2>Applications per day</h2>
+    <canvas id="chart-apps-day"></canvas>
+  </section>
+
+  <section class="chart-box">
+    <h2>Status funnel</h2>
+    <canvas id="chart-funnel"></canvas>
+  </section>
+
+  <section class="chart-box">
+    <h2>Jobs by ATS platform</h2>
+    <canvas id="chart-ats"></canvas>
+  </section>
+
+  <section class="chart-box">
+    <h2>Scrape trend (jobs inserted/day)</h2>
+    <canvas id="chart-scrape"></canvas>
+  </section>
+</div>
+
+{# Role-wise breakdown table (FR-07.1) #}
+<section class="chart-box">
+  <h2>Role-wise breakdown</h2>
+  {% if data.role_breakdown %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Role</th><th>Seen</th><th>Applied</th></tr></thead>
+      <tbody>
+        {% for r in data.role_breakdown %}
+        <tr><td>{{ r.role }}</td><td>{{ r.seen }}</td><td>{{ r.applied }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">No roles configured.</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>window.JOBPULSE_ANALYTICS = {{ data_json | safe }};</script>
+<script src="/static/js/analytics.js"></script>
+{% endblock %}

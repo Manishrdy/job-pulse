@@ -10,18 +10,24 @@ reloads the feed).
 
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, Request, Response
+from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from jobpulse.config import AppConfig
 from jobpulse.deps import get_config, get_db
-from jobpulse.services import applied_service, blocklist_service, jobs_service
+from jobpulse.services import (
+    analytics_service,
+    applied_service,
+    blocklist_service,
+    jobs_service,
+)
 
 router = APIRouter()
 
@@ -254,6 +260,31 @@ def blocklist_add(
 def blocklist_remove(block_id: int, conn: sqlite3.Connection = Depends(get_db)):
     blocklist_service.remove_company(conn, block_id)
     return HTMLResponse("")  # empty body → HTMX removes the row
+
+
+# --- Analytics -------------------------------------------------------------
+
+# Date-range presets for the analytics dashboard (label, days; "" = all time).
+RANGE_PRESETS = [("Last 7 days", "7"), ("Last 30 days", "30"), ("Last 90 days", "90"), ("All time", "")]
+
+
+@router.get("/analytics", response_class=HTMLResponse)
+def analytics_page(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+    days: int | None = Query(None, ge=1),
+):
+    data = analytics_service.summary(conn, config.target_roles, days=days)
+    ctx = {
+        "request": request,
+        "data": data,
+        # Embedded for Chart.js (escape </ to keep it safe inside <script>).
+        "data_json": json.dumps(data).replace("</", "<\\/"),
+        "selected_days": str(days) if days else "",
+        "range_presets": RANGE_PRESETS,
+    }
+    return templates.TemplateResponse(request, "analytics.html", ctx)
 
 
 # --- Scrape logs -----------------------------------------------------------
