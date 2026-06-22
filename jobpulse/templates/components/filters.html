@@ -1,0 +1,83 @@
+{# Filter sidebar. Submits via HTMX, swapping #job-results and pushing the
+   active filters into the URL so a refresh restores them (FR-03.5). #}
+<form id="filters"
+      hx-get="/partials/jobs"
+      hx-target="#job-results"
+      hx-swap="innerHTML"
+      hx-trigger="submit, change delay:300ms from:input[type=search], change from:select, change from:input[type=checkbox]"
+      hx-push-url="true">
+
+  <div class="filter-group">
+    <label for="f-search">Search</label>
+    <input type="search" id="f-search" name="search" placeholder="title, company, description"
+           value="{{ filters.search }}">
+  </div>
+
+  <div class="filter-group">
+    <label for="f-role">Role keyword</label>
+    <input type="text" id="f-role" name="role" placeholder="e.g. Backend Engineer"
+           value="{{ filters.role }}">
+  </div>
+
+  <div class="filter-group">
+    <label for="f-ats">ATS platform</label>
+    <select id="f-ats" name="ats">
+      <option value="">All</option>
+      {% for ats in ats_options %}
+      <option value="{{ ats }}" {% if filters.ats == ats %}selected{% endif %}>{{ ats }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label for="f-location">Location</label>
+    <input type="text" id="f-location" name="location" placeholder="e.g. San Francisco"
+           value="{{ filters.location }}">
+  </div>
+
+  <div class="filter-group checkbox">
+    <label>
+      <input type="checkbox" name="remote" value="true" {% if filters.remote in ['true','on','1'] %}checked{% endif %}>
+      Remote only
+    </label>
+  </div>
+
+  <div class="filter-group">
+    <label for="f-employment">Employment type</label>
+    <select id="f-employment" name="employment_type">
+      <option value="">Any</option>
+      {% for et in ['FULL_TIME','PART_TIME','CONTRACT','INTERN','TEMPORARY'] %}
+      <option value="{{ et }}" {% if filters.employment_type == et %}selected{% endif %}>{{ et.replace('_',' ').title() }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label for="f-posted">Posted within</label>
+    <select id="f-posted" name="posted_within_days">
+      {% for label, val in posted_presets %}
+      <option value="{{ val }}" {% if filters.posted_within_days == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label for="f-salary">Min salary</label>
+    <input type="number" id="f-salary" name="salary_min" placeholder="e.g. 150000" min="0" step="1000"
+           value="{{ filters.salary_min }}">
+  </div>
+
+  <div class="filter-group">
+    <label for="f-sort">Sort by</label>
+    <select id="f-sort" name="sort">
+      {% for label, val in sort_options %}
+      <option value="{{ val }}" {% if filters.sort == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-actions">
+    <button type="submit">Apply filters</button>
+    <a class="clear" href="/">Clear</a>
+  </div>
+</form>

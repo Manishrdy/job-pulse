@@ -1,0 +1,31 @@
+{# Results list — rendered standalone for HTMX swaps and included by feed.html. #}
+<div class="results-header">
+  <span class="count">{{ total }} job{{ '' if total == 1 else 's' }}</span>
+  {% if total %}<span class="page-info">Page {{ page }} of {{ pages }}</span>{% endif %}
+</div>
+
+{% if jobs %}
+  <div class="job-cards">
+    {% for job in jobs %}
+      {% include "components/job_card.html" %}
+    {% endfor %}
+  </div>
+
+  {% if has_prev or has_next %}
+  <nav class="pagination">
+    {% if has_prev %}
+      <button class="btn" hx-get="/partials/jobs?{{ base_qs }}{% if base_qs %}&{% endif %}offset={{ prev_offset }}"
+              hx-target="#job-results" hx-swap="innerHTML" hx-push-url="true">← Prev</button>
+    {% endif %}
+    {% if has_next %}
+      <button class="btn" hx-get="/partials/jobs?{{ base_qs }}{% if base_qs %}&{% endif %}offset={{ next_offset }}"
+              hx-target="#job-results" hx-swap="innerHTML" hx-push-url="true">Next →</button>
+    {% endif %}
+  </nav>
+  {% endif %}
+{% else %}
+  <div class="empty-state">
+    <p>No jobs match your filters.</p>
+    <a href="/">Clear filters</a>
+  </div>
+{% endif %}

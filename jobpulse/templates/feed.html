@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Feed · JobPulse{% endblock %}
+
+{% block content %}
+<div class="feed-layout">
+  <aside class="sidebar">
+    <h2>Filters</h2>
+    {% include "components/filters.html" %}
+  </aside>
+
+  <section class="feed">
+    <div id="job-results">
+      {% include "components/job_list.html" %}
+    </div>
+  </section>
+</div>
+{% endblock %}

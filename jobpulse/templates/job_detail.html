@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ job.title if job else 'Not found' }} · JobPulse{% endblock %}
+
+{% block content %}
+{% if not job %}
+  <div class="empty-state">
+    <p>Job not found.</p>
+    <a href="/">Back to feed</a>
+  </div>
+{% else %}
+<article class="job-detail">
+  <a class="back-link" href="/">← Back to feed</a>
+
+  <header class="detail-head">
+    <h1>{{ job.title }}</h1>
+    <div class="job-meta">
+      <span class="company">{{ job.company }}</span>
+      <span class="ats">{{ job.ats_type }}</span>
+      {% if job.location %}<span class="location">{{ job.location }}</span>{% endif %}
+      {% if job.is_remote == 1 %}<span class="badge badge-remote">Remote</span>{% endif %}
+      {% if job.employment_type %}<span class="emp">{{ job.employment_type.replace('_',' ').title() }}</span>{% endif %}
+    </div>
+    <div class="job-sub">
+      {% if job.salary_min or job.salary_max %}
+        <span class="salary">
+          {% if job.salary_min %}{{ '{:,.0f}'.format(job.salary_min) }}{% endif %}{% if job.salary_min and job.salary_max %}–{% endif %}{% if job.salary_max %}{{ '{:,.0f}'.format(job.salary_max) }}{% endif %}
+          {{ job.salary_currency or '' }}{% if job.salary_period %} / {{ job.salary_period|lower }}{% endif %}
+        </span>
+      {% elif job.salary_summary %}
+        <span class="salary">{{ job.salary_summary }}</span>
+      {% endif %}
+      <span class="posted">
+        {% if job.posted_at %}Posted {{ job.posted_at[:10] }}{% else %}First seen {{ job.first_seen[:10] }}{% endif %}
+      </span>
+      <span class="relevance">★ {{ '%.1f'|format(job.relevance_score or 0) }}</span>
+    </div>
+  </header>
+
+  <div class="detail-actions">
+    <a class="btn btn-apply" href="{{ job.apply_url or job.url }}" target="_blank" rel="noopener">Apply ↗</a>
+    <button class="btn" hx-post="/job/{{ job.id }}/apply" hx-on::after-request="window.location='/'">Mark Applied</button>
+    <button class="btn" hx-post="/job/{{ job.id }}/expire" hx-on::after-request="window.location='/'">Expire</button>
+    <button class="btn btn-danger" hx-post="/job/{{ job.id }}/block"
+            hx-confirm="Block {{ job.company }}? All its jobs will be hidden.">Block Company</button>
+  </div>
+
+  {% if job.description %}
+    <section class="description">{{ job.description }}</section>
+  {% else %}
+    <p class="muted">No description available.</p>
+  {% endif %}
+</article>
+{% endif %}
+{% endblock %}

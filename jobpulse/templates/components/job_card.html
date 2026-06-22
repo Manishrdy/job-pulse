@@ -1,0 +1,43 @@
+{# One job posting. Action buttons target the closest .job-card and swap
+   outerHTML — an empty response removes the card from the feed. #}
+<article class="job-card" id="job-{{ job.id }}">
+  <div class="job-head">
+    <h3 class="job-title">
+      <a href="/job/{{ job.id }}">{{ job.title }}</a>
+      {% if not job.viewed_at %}<span class="badge badge-new">New</span>{% endif %}
+    </h3>
+    <span class="relevance" title="Relevance score">★ {{ '%.1f'|format(job.relevance_score or 0) }}</span>
+  </div>
+
+  <div class="job-meta">
+    <span class="company">{{ job.company }}</span>
+    <span class="ats">{{ job.ats_type }}</span>
+    {% if job.location %}<span class="location">{{ job.location }}</span>{% endif %}
+    {% if job.is_remote == 1 %}<span class="badge badge-remote">Remote</span>{% endif %}
+    {% if job.employment_type %}<span class="emp">{{ job.employment_type.replace('_',' ').title() }}</span>{% endif %}
+  </div>
+
+  <div class="job-sub">
+    {% if job.salary_min or job.salary_max %}
+      <span class="salary">
+        {% if job.salary_min %}{{ '{:,.0f}'.format(job.salary_min) }}{% endif %}{% if job.salary_min and job.salary_max %}–{% endif %}{% if job.salary_max %}{{ '{:,.0f}'.format(job.salary_max) }}{% endif %}
+        {{ job.salary_currency or '' }}{% if job.salary_period %} / {{ job.salary_period|lower }}{% endif %}
+      </span>
+    {% elif job.salary_summary %}
+      <span class="salary">{{ job.salary_summary }}</span>
+    {% endif %}
+    <span class="posted">
+      {% if job.posted_at %}Posted {{ job.posted_at[:10] }}{% else %}Seen {{ job.first_seen[:10] }}{% endif %}
+    </span>
+  </div>
+
+  <div class="job-actions">
+    <a class="btn btn-apply" href="{{ job.apply_url or job.url }}" target="_blank" rel="noopener">Apply ↗</a>
+    <button class="btn" hx-post="/job/{{ job.id }}/apply"
+            hx-target="#job-{{ job.id }}" hx-swap="outerHTML">Mark Applied</button>
+    <button class="btn" hx-post="/job/{{ job.id }}/expire"
+            hx-target="#job-{{ job.id }}" hx-swap="outerHTML">Expire</button>
+    <button class="btn btn-danger" hx-post="/job/{{ job.id }}/block"
+            hx-confirm="Block {{ job.company }}? All its jobs will be hidden.">Block Company</button>
+  </div>
+</article>

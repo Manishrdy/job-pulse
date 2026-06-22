@@ -43,6 +43,9 @@ Thumbs.db
 *.md
 !/README.md
 
+# Local preview / editor config
+.claude/launch.json
+
 # uv
 .python-version
 

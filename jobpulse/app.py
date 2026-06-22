@@ -19,6 +19,7 @@ from jobpulse.config import AppConfig, load_config
 from jobpulse.database import init_db
 from jobpulse.logger import setup_logging
 from jobpulse.routes.api import router as api_router
+from jobpulse.routes.pages import router as pages_router
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.state.config = config
 
     app.include_router(api_router)
+    app.include_router(pages_router)
 
     if _STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
