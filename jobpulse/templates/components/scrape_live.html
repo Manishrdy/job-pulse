@@ -69,7 +69,7 @@
         <details>
           <summary>{{ ats_rows|length }} ATS</summary>
           <table class="mini-table">
-            <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th><th>Err</th></tr></thead>
+            <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th><th>Err</th><th>Time</th></tr></thead>
             <tbody>
               {% for a in ats_rows %}
               <tr>
@@ -79,6 +79,7 @@
                 <td>{{ a.jobs_updated }}</td>
                 <td>{{ a.jobs_blocked }}</td>
                 <td>{{ a.errors }}</td>
+                <td>{{ '%.0fs'|format(a.duration_seconds) if a.duration_seconds is not none else '—' }}</td>
               </tr>
               {% endfor %}
             </tbody>

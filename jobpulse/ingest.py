@@ -174,8 +174,9 @@ def record_scrape_run_ats(
     conn.executemany(
         """
         INSERT INTO scrape_run_ats (
-            run_id, ats_type, jobs_fetched, jobs_inserted, jobs_updated, jobs_blocked, errors
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            run_id, ats_type, jobs_fetched, jobs_inserted, jobs_updated,
+            jobs_blocked, errors, duration_seconds
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -186,6 +187,7 @@ def record_scrape_run_ats(
                 r.get("updated", 0),
                 r.get("blocked", 0),
                 r.get("errors", 0),
+                r.get("duration", 0.0),
             )
             for r in rows
         ],

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -63,6 +64,7 @@ class AtsScrape:
     fetched: int = 0
     jobs: list[JobRecord] = field(default_factory=list)
     errors: int = 0
+    duration: float = 0.0  # wall-clock seconds spent on this ATS
 
 
 @dataclass
@@ -206,6 +208,7 @@ def run_scrape(
             except Exception as exc:  # never let one company kill the run
                 return entry, None, f"{_ats}/{identifier}: {exc}"
 
+        ats_started = time.monotonic()
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for entry, fetched, error in pool.map(_fetch_one, companies):
                 if error is not None:
@@ -224,6 +227,7 @@ def run_scrape(
                     on_company(ats, len(fetched), records)
                 else:
                     ats_slice.jobs.extend(records)
+        ats_slice.duration = round(time.monotonic() - ats_started, 2)
 
     log.info(
         "Scrape pass complete: %d ATS, %d fetched, %d matched, %d errors (concurrency=%d)",

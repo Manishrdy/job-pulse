@@ -212,6 +212,14 @@ def test_pipeline_records_per_ats(test_db: sqlite3.Connection, test_config, tmp_
     by_ats = {r["ats_type"]: r for r in ats_rows}
     assert by_ats["greenhouse"]["jobs_inserted"] == 1
     assert by_ats["lever"]["jobs_blocked"] == 1
+    # Per-ATS duration is recorded (column present + populated, >= 0).
+    assert "duration_seconds" in by_ats["greenhouse"].keys()
+    assert by_ats["greenhouse"]["duration_seconds"] >= 0
+
+
+def test_scrape_run_ats_has_duration_column(test_db: sqlite3.Connection):
+    cols = {r[1] for r in test_db.execute("PRAGMA table_info(scrape_run_ats)")}
+    assert "duration_seconds" in cols
 
 
 # --- UI breakdown ----------------------------------------------------------

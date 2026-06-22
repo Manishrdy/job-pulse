@@ -117,14 +117,15 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 
 -- Per-ATS breakdown for a scrape run (FR-01.7, extended)
 CREATE TABLE IF NOT EXISTS scrape_run_ats (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id        INTEGER NOT NULL REFERENCES scrape_runs(id) ON DELETE CASCADE,
-    ats_type      TEXT    NOT NULL,
-    jobs_fetched  INTEGER NOT NULL DEFAULT 0,
-    jobs_inserted INTEGER NOT NULL DEFAULT 0,
-    jobs_updated  INTEGER NOT NULL DEFAULT 0,
-    jobs_blocked  INTEGER NOT NULL DEFAULT 0,
-    errors        INTEGER NOT NULL DEFAULT 0
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id           INTEGER NOT NULL REFERENCES scrape_runs(id) ON DELETE CASCADE,
+    ats_type         TEXT    NOT NULL,
+    jobs_fetched     INTEGER NOT NULL DEFAULT 0,
+    jobs_inserted    INTEGER NOT NULL DEFAULT 0,
+    jobs_updated     INTEGER NOT NULL DEFAULT 0,
+    jobs_blocked     INTEGER NOT NULL DEFAULT 0,
+    errors           INTEGER NOT NULL DEFAULT 0,
+    duration_seconds REAL    NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_scrape_run_ats_run ON scrape_run_ats(run_id);
 """
@@ -133,6 +134,7 @@ CREATE INDEX IF NOT EXISTS idx_scrape_run_ats_run ON scrape_run_ats(run_id);
 # (init_db uses CREATE TABLE IF NOT EXISTS, which won't add new columns.)
 _MIGRATIONS = [
     ("scrape_runs", "jobs_blocked", "INTEGER NOT NULL DEFAULT 0"),
+    ("scrape_run_ats", "duration_seconds", "REAL NOT NULL DEFAULT 0"),
 ]
 
 FTS_TRIGGERS_SQL = """

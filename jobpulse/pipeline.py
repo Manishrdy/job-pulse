@@ -139,11 +139,12 @@ def run_scrape_pipeline(
 
         result = run_scrape(config, **kwargs)
 
-        # Fill in fetched/errors counts now that each ATS is fully scraped.
+        # Fill in fetched/errors/duration now that each ATS is fully scraped.
         for slice_ in result.ats_results:
             a = _agg(slice_.ats)
             a["fetched"] = slice_.fetched
             a["errors"] = slice_.errors
+            a["duration"] = slice_.duration
 
         totals = {
             "inserted": sum(a["inserted"] for a in per_ats.values()),
