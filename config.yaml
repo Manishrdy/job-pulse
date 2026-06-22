@@ -37,6 +37,12 @@ location:
   primary: "United States"
   remote_preferred: true
 
+cron:
+  enabled: false   # in-process scheduler; override with JOBPULSE_CRON_ENABLED env
+
+scrape:
+  max_companies_per_ats: 50   # cap per ATS per run; null = scrape all
+
 data_lifecycle:
   ttl_days: 3
 

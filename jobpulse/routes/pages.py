@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from jobpulse import pipeline
 from jobpulse.config import AppConfig
 from jobpulse.deps import get_config, get_db
 from jobpulse.services import (
@@ -291,10 +292,39 @@ def analytics_page(
 
 
 @router.get("/scrape-logs", response_class=HTMLResponse)
-def scrape_logs_page(request: Request, conn: sqlite3.Connection = Depends(get_db)):
+def scrape_logs_page(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+):
     rows = conn.execute(
         "SELECT * FROM scrape_runs ORDER BY run_at DESC, id DESC LIMIT 100"
     ).fetchall()
     return templates.TemplateResponse(
-        request, "scrape_logs.html", {"request": request, "runs": [dict(r) for r in rows]}
+        request,
+        "scrape_logs.html",
+        {
+            "request": request,
+            "runs": [dict(r) for r in rows],
+            "cron_enabled": config.cron.enabled,
+            "pipeline_status": pipeline.get_status(),
+        },
     )
+
+
+@router.post("/scrape/run", response_class=HTMLResponse)
+def scrape_run_action(config: AppConfig = Depends(get_config)):
+    """Dev-mode manual trigger: run a scrape in the background (FR-01 manual).
+
+    Returns immediately; a run-lock prevents overlap. Refreshes the page so
+    the running indicator / new run row shows.
+    """
+    pipeline.run_scrape_in_background(config, schedule_slot="manual")
+    return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+@router.post("/cleanup/run", response_class=HTMLResponse)
+def cleanup_run_action(config: AppConfig = Depends(get_config)):
+    """Manual trigger: run TTL cleanup in the background."""
+    pipeline.run_cleanup_in_background(config)
+    return Response(status_code=204, headers={"HX-Refresh": "true"})

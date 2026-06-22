@@ -1,0 +1,24 @@
+# JobPulse — example crontab (OS-cron alternative to the in-process scheduler).
+#
+# Use this ONLY when running with cron.enabled = false (JOBPULSE_CRON_ENABLED=false).
+# When the in-process scheduler is enabled, do NOT also add these — you'd
+# double-run. The standalone scripts and the in-app scheduler share the same
+# pipeline + run-lock, but separate processes don't share the lock.
+#
+# Times below are written for America/Los_Angeles (PST/PDT). cron uses the
+# server's local timezone, so either:
+#   (a) set the server TZ to America/Los_Angeles, or
+#   (b) add `CRON_TZ=America/Los_Angeles` at the top (Vixie/most modern cron), or
+#   (c) translate the times to the server's timezone (e.g. UTC = PST + 8 / PDT + 7).
+#
+# Adjust the absolute paths to your deployment (WorkingDirectory + uv path).
+
+CRON_TZ=America/Los_Angeles
+
+# Scrape 3x/day: morning 08:00, afternoon 13:00, evening 18:00
+0 8  * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_scrape.py morning   >> logs/cron.log 2>&1
+0 13 * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_scrape.py afternoon >> logs/cron.log 2>&1
+0 18 * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_scrape.py evening   >> logs/cron.log 2>&1
+
+# Nightly TTL cleanup at 02:00
+0 2  * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_cleanup.py          >> logs/cron.log 2>&1

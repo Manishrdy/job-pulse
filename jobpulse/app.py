@@ -20,6 +20,7 @@ from jobpulse.database import init_db
 from jobpulse.logger import setup_logging
 from jobpulse.routes.api import router as api_router
 from jobpulse.routes.pages import router as pages_router
+from jobpulse.scheduler import CronScheduler
 
 log = logging.getLogger(__name__)
 
@@ -36,8 +37,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         # Ensure schema exists before serving requests.
         conn = init_db(config)
         conn.close()
-        log.info("JobPulse app started")
+
+        # Start the in-process scheduler only when the cron toggle is on.
+        # When off, scraping is triggered manually from the UI (dev mode).
+        scheduler: CronScheduler | None = None
+        if config.cron.enabled:
+            scheduler = CronScheduler(config)
+            scheduler.start()
+            log.info("JobPulse app started (cron ENABLED)")
+        else:
+            log.info("JobPulse app started (cron disabled — manual UI trigger)")
+
+        app.state.scheduler = scheduler
         yield
+
+        if scheduler is not None:
+            scheduler.stop()
         log.info("JobPulse app stopped")
 
     app = FastAPI(title="JobPulse", lifespan=lifespan)

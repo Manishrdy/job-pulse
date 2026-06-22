@@ -190,6 +190,10 @@ a:hover { text-decoration: underline; }
   .charts-grid { grid-template-columns: 1fr; }
 }
 
+/* Scrape controls */
+.scrape-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cron-status { font-size: 13px; color: var(--muted); }
+
 /* Status pills (scrape logs) */
 .status { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .status-success { background: #e7f6ec; color: var(--green); }

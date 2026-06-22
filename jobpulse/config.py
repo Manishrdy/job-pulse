@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -51,6 +52,19 @@ class Server(BaseModel):
     port: int = Field(default=8000, ge=1, le=65535)
 
 
+class Cron(BaseModel):
+    # When True, the app runs an in-process scheduler firing scrapes/cleanup
+    # at the configured times. When False, scraping is triggered manually from
+    # the UI (dev mode). Overridable via the JOBPULSE_CRON_ENABLED env var.
+    enabled: bool = False
+
+
+class Scrape(BaseModel):
+    # Cap companies scraped per ATS per run (scraping every company is
+    # impractical). None = no cap (scrape all). Bound it in production.
+    max_companies_per_ats: int | None = Field(default=50, ge=1)
+
+
 class AppConfig(BaseModel):
     target_roles: list[str] = Field(min_length=1)
     ats_platforms: ATSPlatforms
@@ -60,6 +74,8 @@ class AppConfig(BaseModel):
     database: Database = Database()
     logging: Logging = Logging()
     server: Server = Server()
+    cron: Cron = Cron()
+    scrape: Scrape = Scrape()
 
     @field_validator("target_roles")
     @classmethod
@@ -72,9 +88,25 @@ class AppConfig(BaseModel):
 
 _CONFIG_ENV_VAR = "JOBPULSE_CONFIG"
 _DEFAULT_CONFIG_PATH = "config.yaml"
+_CRON_ENV_VAR = "JOBPULSE_CRON_ENABLED"
+
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_FALSE_VALUES = {"0", "false", "no", "off"}
+
+
+def _env_bool(value: str) -> bool:
+    v = value.strip().lower()
+    if v in _TRUE_VALUES:
+        return True
+    if v in _FALSE_VALUES:
+        return False
+    raise ValueError(f"Invalid boolean for {_CRON_ENV_VAR}: {value!r}")
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
+    # Load .env (if present) so env overrides like JOBPULSE_CRON_ENABLED apply.
+    load_dotenv()
+
     if path is None:
         path = os.environ.get(_CONFIG_ENV_VAR, _DEFAULT_CONFIG_PATH)
     config_path = Path(path)
@@ -84,4 +116,10 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         raw = yaml.safe_load(f)
     if not isinstance(raw, dict):
         raise ValueError(f"Config file must be a YAML mapping, got {type(raw).__name__}")
+
+    # Env override for the cron toggle takes precedence over config.yaml.
+    cron_env = os.environ.get(_CRON_ENV_VAR)
+    if cron_env is not None:
+        raw.setdefault("cron", {})["enabled"] = _env_bool(cron_env)
+
     return AppConfig(**raw)

@@ -1,0 +1,23 @@
+[Unit]
+Description=JobPulse — personal job search dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust User/paths to your deployment.
+User=jobpulse
+WorkingDirectory=/opt/jobpulse
+# Loads JOBPULSE_CRON_ENABLED and any other overrides. Create from .env.example.
+EnvironmentFile=/opt/jobpulse/.env
+# uv runs the app from the project's locked virtualenv.
+ExecStart=/usr/bin/uv run uvicorn jobpulse.app:create_app --factory --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

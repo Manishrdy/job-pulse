@@ -6,10 +6,10 @@ scraper library. JobPulse vendors the jobhive scrapers locally, runs them on a p
 schedule, stores results in SQLite, and serves a FastAPI dashboard for browsing,
 filtering, tracking, and analyzing job applications.
 
-> **Status:** Modules 1–4 complete (config, database, scraper/ingestion, lifecycle,
-> and the full service + REST API layer). The HTML dashboard (Jinja2 + HTMX),
-> analytics charts, cron scheduling, and deployment docs land in Modules 5–8.
-> See [`SCOPE.md`](SCOPE.md) for the full development plan.
+> **Status:** Feature-complete (Modules 1–8). Config, database, scraper/ingestion,
+> lifecycle, REST API, the full HTML dashboard (feed, applied, blocklist, scrape
+> logs, analytics), the scheduler, and deployment tooling are all in place.
+> See [`SCOPE.md`](SCOPE.md) for the development plan.
 
 ---
 
@@ -49,11 +49,18 @@ jobpulse/
 ├── scraper.py         # jobhive wrapper, ATS priority order, role filter
 ├── ingest.py          # Dedup, insert/update, blocklist, scrape_runs logging
 ├── cleanup.py         # TTL deletion + expire action
+├── pipeline.py        # Scrape/cleanup orchestration with run-lock
+├── scheduler.py       # In-process cron scheduler (toggle via env)
 ├── app.py             # FastAPI application factory
 ├── deps.py            # Request-scoped DB / config dependencies
-├── routes/api.py      # REST API endpoints (JSON)
+├── routes/            # api.py (JSON) + pages.py (HTML/HTMX)
+├── templates/         # Jinja2 templates (feed, applied, blocklist, logs, analytics)
+├── static/            # CSS + JS (HTMX actions, Chart.js)
 └── services/          # jobs / applied / blocklist / analytics business logic
 config.yaml            # All configurable values (roles, ATS list, TTL, schedule…)
+.env.example           # Env overrides (JOBPULSE_CRON_ENABLED, …)
+scripts/               # run_scrape.py, run_cleanup.py, crontab.example
+systemd/               # jobpulse.service unit file
 vendor/jobhive/        # Vendored jobhive scraper library + company manifests
 tests/                 # Per-module test suites (pytest)
 ```
@@ -126,31 +133,76 @@ Interactive API docs are then at `http://localhost:8000/docs`.
 `location`, `remote`, `employment_type`, `posted_within_days`, `salary_min`,
 `sort` (`relevance` / `posted` / `salary`), `limit`, `offset`.
 
-## Scraping (programmatic)
+## Scraping & scheduling
 
-Until the cron runner lands in Module 8, a scrape + ingest pass can be driven directly:
+A scrape runs the full pipeline: fetch every configured ATS → filter by title
+against `target_roles` → dedup on `global_id` → score relevance → reconcile into
+the `jobs` table → log the run to `scrape_runs`. Company slugs come from
+`vendor/jobhive/ats-companies/{ats}.csv`; `scrape.max_companies_per_ats` caps how
+many are hit per run. All runs are **idempotent** (dedup) and **serialized** by a
+process-wide lock, so overlapping triggers or a restart mid-run never corrupt data.
 
-```python
-from jobpulse.config import load_config
-from jobpulse.database import init_db
-from jobpulse.scraper import run_scrape
-from jobpulse.ingest import ingest_jobs, record_scrape_run
+There are three ways to run it:
 
-config = load_config("config.yaml")
-conn = init_db(config)
+### 1. In-process scheduler (the cron toggle)
 
-result = run_scrape(config, max_companies_per_ats=25)   # cap for a quick run
-stats = ingest_jobs(conn, result.jobs, target_roles=config.target_roles)
-record_scrape_run(
-    conn, schedule_slot="manual", ats_types_scraped=result.ats_types,
-    jobs_fetched=result.total_fetched, jobs_inserted=stats.inserted,
-    jobs_updated=stats.updated, status="success",
-)
+Set the master switch in `.env` (copy from `.env.example`):
+
+```bash
+JOBPULSE_CRON_ENABLED=true     # fire scrapes 3x/day + nightly cleanup automatically
+JOBPULSE_CRON_ENABLED=false    # no automatic runs — trigger manually from the UI (dev)
 ```
 
-Company slugs are read from `vendor/jobhive/ats-companies/{ats}.csv` (thousands of
-companies per ATS). Jobs are filtered by title against `target_roles`, deduplicated on
-`global_id`, scored for relevance, and reconciled into the `jobs` table.
+When `true`, the app starts a background scheduler that fires at the
+`schedule:` times in `config.yaml` (morning/afternoon/evening scrapes + nightly
+cleanup) in the configured timezone. When `false`, nothing runs automatically —
+ideal for development, where you don't want a restart kicking off a scrape.
+
+### 2. Manual trigger from the UI (dev)
+
+The **Scrape Logs** page shows the scheduler state and has **Run scrape now** /
+**Run cleanup now** buttons. They start the run in the background and return
+immediately; a "running…" indicator appears and the run-lock blocks overlaps.
+This is the recommended way to scrape during development.
+
+### 3. OS cron (alternative to the in-process scheduler)
+
+With `JOBPULSE_CRON_ENABLED=false`, schedule the standalone scripts via the OS:
+
+```bash
+uv run python scripts/run_scrape.py morning
+uv run python scripts/run_cleanup.py
+```
+
+See [`scripts/crontab.example`](scripts/crontab.example) for ready-to-use entries
+(with PST timezone notes). Don't enable both the in-process scheduler and OS cron
+at once — you'd double-run.
+
+---
+
+## Deployment
+
+JobPulse runs as a single Python process — no containers, no external services.
+
+1. **Provision** an OCI free-tier instance (1 GB RAM is plenty; x86 or ARM).
+   Install Python 3.12 and [uv](https://github.com/astral-sh/uv).
+2. **Clone** the repo to `/opt/jobpulse` and run `uv sync`.
+3. **Configure**: copy `.env.example` → `.env`, set `JOBPULSE_CRON_ENABLED=true`,
+   and review `config.yaml` (roles, ATS list, schedule, TTL, `max_companies_per_ats`).
+4. **Install the service**:
+
+   ```bash
+   sudo cp systemd/jobpulse.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now jobpulse
+   ```
+
+   See [`systemd/jobpulse.service`](systemd/jobpulse.service) — it reads `.env`,
+   runs uvicorn, and restarts on failure. The dashboard then serves on port 8000
+   (put it behind a reverse proxy / firewall as desired).
+
+With the service running and `JOBPULSE_CRON_ENABLED=true`, the in-process
+scheduler handles all scraping and cleanup — no crontab needed.
 
 ## Tests
 
@@ -184,10 +236,10 @@ Four tables (see [`SCOPE.md`](SCOPE.md) §5 for full column definitions):
 | 2 | Scraper integration & ingestion pipeline | ✅ |
 | 3 | Data lifecycle & cleanup | ✅ |
 | 4 | Core API & service layer | ✅ |
-| 5 | Dashboard templates (job feed) | ⏳ |
-| 6 | Applied / blocklist / scrape-log pages | ⏳ |
-| 7 | Analytics dashboard | ⏳ |
-| 8 | Cron, deployment & documentation | ⏳ |
+| 5 | Dashboard templates (job feed) | ✅ |
+| 6 | Applied / blocklist / scrape-log pages | ✅ |
+| 7 | Analytics dashboard | ✅ |
+| 8 | Cron, deployment & documentation | ✅ |
 
 ---
 

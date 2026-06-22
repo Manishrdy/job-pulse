@@ -4,6 +4,19 @@
 {% block content %}
 <div class="page-head">
   <h1>Scrape Run Log</h1>
+  <div class="scrape-controls">
+    <span class="cron-status">
+      Scheduler:
+      {% if cron_enabled %}<span class="status status-success">enabled</span>
+      {% else %}<span class="status status-partial_failure">disabled (manual)</span>{% endif %}
+    </span>
+    {% if pipeline_status.running %}
+      <span class="status status-partial_failure">running: {{ pipeline_status.current }}…</span>
+    {% else %}
+      <button class="btn btn-apply" hx-post="/scrape/run" hx-swap="none">Run scrape now</button>
+      <button class="btn" hx-post="/cleanup/run" hx-swap="none">Run cleanup now</button>
+    {% endif %}
+  </div>
 </div>
 
 {% if runs %}
