@@ -1,0 +1,54 @@
+target_roles:
+  - "AI Engineer"
+  - "Gen AI Engineer"
+  - "Generative AI Engineer"
+  - "Forward Deployed Engineer"
+  - "Software Engineer"
+  - "Senior Software Engineer"
+  - "Software Development Engineer"
+  - "Backend Engineer"
+
+ats_platforms:
+  primary:
+    - greenhouse
+    - lever
+    - ashby
+    - icims
+  secondary:
+    - smartrecruiters
+    - jazzhr
+    - teamtailor
+    - gem
+    - bamboohr
+    - workable
+    - rippling
+    - phenom
+  low_priority:
+    - workday
+
+schedule:
+  morning: "08:00"
+  afternoon: "13:00"
+  evening: "18:00"
+  cleanup: "02:00"
+  timezone: "US/Pacific"
+
+location:
+  primary: "United States"
+  remote_preferred: true
+
+data_lifecycle:
+  ttl_days: 3
+
+database:
+  path: "jobpulse.db"
+
+logging:
+  level: "INFO"
+  file: "logs/jobpulse.log"
+  max_bytes: 10485760  # 10MB
+  backup_count: 5
+
+server:
+  host: "0.0.0.0"
+  port: 8000
