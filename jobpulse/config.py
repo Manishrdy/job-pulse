@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
 # HH:MM in 24-hour form (00:00–23:59).
@@ -142,9 +141,8 @@ def _env_bool(value: str) -> bool:
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
-    # Load .env (if present) so env overrides like JOBPULSE_CRON_ENABLED apply.
-    load_dotenv()
-
+    # Note: .env is loaded by the entry points (app.create_app / scripts), not
+    # here, so tests calling load_config() aren't affected by a developer's .env.
     if path is None:
         path = os.environ.get(_CONFIG_ENV_VAR, _DEFAULT_CONFIG_PATH)
     config_path = Path(path)

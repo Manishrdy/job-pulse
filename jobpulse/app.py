@@ -29,6 +29,10 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
     if config is None:
+        # Load .env (JOBPULSE_CRON_ENABLED, JOBPULSE_CONFIG, …) before reading config.
+        from dotenv import load_dotenv
+
+        load_dotenv()
         config = load_config()
     setup_logging(config)
 

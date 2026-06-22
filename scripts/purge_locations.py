@@ -23,6 +23,9 @@ from jobpulse.location import LocationMatch, classify_location, purge_non_target
 
 def main() -> int:
     dry_run = "--dry-run" in sys.argv
+    from dotenv import load_dotenv
+
+    load_dotenv()  # pick up .env (JOBPULSE_CRON_ENABLED, JOBPULSE_CONFIG)
     config = load_config()
     conn = get_connection(config.database.path)
 

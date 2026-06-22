@@ -17,6 +17,9 @@ from jobpulse.pipeline import run_cleanup_pipeline
 
 
 def main() -> int:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # pick up .env (JOBPULSE_CRON_ENABLED, JOBPULSE_CONFIG)
     config = load_config()
     setup_logging(config)
     init_db(config).close()  # ensure schema exists
