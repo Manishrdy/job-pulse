@@ -55,10 +55,27 @@ def test_foreign_locations_classified_non_us(loc):
         "London, KY",          # London, Kentucky — US wins via abbrev
         "Wilmington, DE",       # Delaware abbrev, not Germany
         "Indianapolis, Indiana",  # not 'India'
+        # City + state with no "USA", in both abbrev and full-name forms:
+        "Charlotte, NC",
+        "Charlotte, North Carolina",
+        "Raleigh-Durham, North Carolina",
+        "Nashville, TN",        # Tennessee, not Tamil Nadu
+        "Minneapolis, MN",      # Minnesota, not Manipur
+        "Portland, OR",         # Oregon, not Odisha
+        "New Orleans, LA",      # Louisiana, not Ladakh
+        "Atlanta, GA",          # Georgia (US), not Goa
     ],
 )
 def test_us_locations_classified_us(loc):
     assert classify_location(loc) is US
+
+
+def test_state_roster_covers_all_us_states():
+    from jobpulse.location import US_STATES
+    # Every state resolves as US by both its code and its full name.
+    for code, name in US_STATES.items():
+        assert classify_location(f"Somecity, {code}") is US, code
+        assert classify_location(f"Somecity, {name}") is US, name
 
 
 @pytest.mark.parametrize("loc", ["Remote", "", None, "Multiple Locations", "Anywhere"])
@@ -76,6 +93,28 @@ def test_country_iso_is_authoritative():
 def test_us_signal_wins_over_foreign():
     # A role open to both — US-eligible, so keep.
     assert classify_location("Remote - US or Canada") is US
+
+
+# --- India roster (target switch) ------------------------------------------
+
+
+def test_india_target_keeps_india_drops_us():
+    # Indian states match by code and full name when India is the target.
+    assert classify_location("Bengaluru, KA", country_code="IN") is US        # Karnataka
+    assert classify_location("Pune, Maharashtra", country_code="IN") is US
+    assert classify_location("Chennai, Tamil Nadu", country_code="IN") is US
+    assert classify_location("Mumbai, India", country_code="IN") is US
+    # US jobs are foreign when the target is India.
+    assert classify_location("Austin, TX", country_code="IN") is NON_US
+    assert classify_location("San Francisco, California", country_code="IN") is NON_US
+
+
+def test_us_target_drops_india():
+    # The user's concern: India jobs must not leak when the target is US.
+    assert classify_location("Bengaluru, Karnataka") is NON_US
+    assert classify_location("Chennai, Tamil Nadu") is NON_US   # TN here = Tamil Nadu
+    assert classify_location("Pune, Maharashtra, India") is NON_US
+    assert classify_location("Hyderabad, Telangana") is NON_US
 
 
 # --- is_target_location policy ---------------------------------------------

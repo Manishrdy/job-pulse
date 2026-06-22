@@ -34,7 +34,7 @@ schedule:
 
 location:
   primary: "United States"
-  country_code: "US"        # only ingest US jobs (text rules are US-specialized)
+  country_code: "US"        # roster-matched country: "US" or "IN" (India)
   remote_preferred: true
   keep_unknown: false       # strict: drop jobs whose country can't be confirmed (unless remote)
 

@@ -144,12 +144,16 @@ many are hit per run. All runs are **idempotent** (dedup) and **serialized** by 
 process-wide lock, so overlapping triggers or a restart mid-run never corrupt data.
 
 **Location filtering** (`location` in config.yaml): scrapers return every job a
-company posts worldwide, so each posting is classified US / non-US / unknown
-(ISO country code when present, else US state/city/synonym rules vs. a foreign
-country/region/city denylist). Confirmed-foreign jobs are dropped at ingest and
-purged from the DB on each scrape. `keep_unknown: false` also drops jobs whose
-country can't be confirmed (unless remote). Set `country_code` for a different
-region (text rules are US-specialized; others fall back to ISO matching).
+company posts worldwide, so each posting's **location field** (never the
+description) is classified against the target country's **state roster** — a
+`{code: full_name}` map of every state/territory. A posting matches if the
+location contains a state code (`NC`), a full state name (`North Carolina`),
+the country name, or a matching `country_iso`. Two-letter collisions (TN =
+Tennessee/Tamil Nadu, CA = California/Canada) are resolved by tiered
+precedence. Confirmed-foreign jobs are dropped at ingest and purged from the
+DB on each scrape; `keep_unknown: false` also drops jobs whose country can't be
+confirmed (unless remote). Rosters ship for **US** and **India** — switch with
+`country_code: US` / `IN`.
 
 There are three ways to run it:
 
