@@ -191,8 +191,11 @@ def run_scrape(
         result.ats_results.append(ats_slice)
 
         companies = load_company_manifest(ats, manifest_dir)
-        if max_companies_per_ats is not None:
-            companies = companies[:max_companies_per_ats]
+        # Per-ATS cap (e.g. Workday=5) overrides the global cap; an explicit
+        # max_companies_per_ats argument still wins for callers/tests.
+        cap = max_companies_per_ats if max_companies_per_ats is not None else config.scrape.cap_for(ats)
+        if cap is not None:
+            companies = companies[:cap]
         if not companies:
             continue
 

@@ -90,6 +90,36 @@ def test_concurrency_actually_parallel(tmp_path: Path):
     assert max_in_flight >= 2  # genuinely concurrent (barrier proves all 8)
 
 
+def test_per_ats_cap_override(tmp_path: Path):
+    # 10 companies on each ATS; workday capped at 2 via override, greenhouse at 10.
+    for ats in ("greenhouse", "workday"):
+        rows = "\n".join(f"C{i},c{i},https://e.com/{ats}/c{i}" for i in range(10))
+        (tmp_path / f"{ats}.csv").write_text(f"name,slug,url\n{rows}\n")
+    config = AppConfig(
+        target_roles=["Software Engineer"],
+        ats_platforms={"primary": ["greenhouse", "workday"]},
+        database={"path": str(tmp_path / "x.db")},
+        logging={"file": str(tmp_path / "x.log")},
+        scrape={"max_companies_per_ats": 10, "per_ats_overrides": {"workday": 2}, "concurrency": 4},
+    )
+    calls = {"greenhouse": 0, "workday": 0}
+
+    def fake(ats, ident):
+        calls[ats] += 1
+        return []
+
+    run_scrape(config, manifest_dir=tmp_path, scrape_fn=fake)
+    assert calls["greenhouse"] == 10   # global cap
+    assert calls["workday"] == 2        # per-ATS override
+
+
+def test_cap_for_helper():
+    from jobpulse.config import Scrape
+    s = Scrape(max_companies_per_ats=50, per_ats_overrides={"workday": 5})
+    assert s.cap_for("workday") == 5
+    assert s.cap_for("greenhouse") == 50
+
+
 def test_priority_order_preserved_across_ats(tmp_path: Path):
     (tmp_path / "greenhouse.csv").write_text("name,slug,url\nA,a,https://e.com/a\n")
     (tmp_path / "lever.csv").write_text("name,slug,url\nB,b,https://e.com/b\n")

@@ -129,10 +129,9 @@ def run_scrape_pipeline(
         if purged:
             log.info("Purged %d non-target-location jobs before scrape", purged)
 
-        kwargs: dict[str, Any] = {
-            "max_companies_per_ats": config.scrape.max_companies_per_ats,
-            "on_company": _on_company,
-        }
+        # No max_companies_per_ats here — run_scrape applies the per-ATS caps
+        # (config.scrape.cap_for) so e.g. Workday can be capped lower than others.
+        kwargs: dict[str, Any] = {"on_company": _on_company}
         if scrape_fn is not None:
             kwargs["scrape_fn"] = scrape_fn
         if manifest_dir is not None:

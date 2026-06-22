@@ -43,6 +43,8 @@ cron:
 
 scrape:
   max_companies_per_ats: 50   # cap per ATS per run; null = scrape all
+  per_ats_overrides:          # per-ATS cap overrides (Workday tenants are huge + slow)
+    workday: 5
 
 data_lifecycle:
   ttl_days: 3

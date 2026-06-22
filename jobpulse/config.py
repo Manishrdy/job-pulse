@@ -90,9 +90,17 @@ class Scrape(BaseModel):
     # Cap companies scraped per ATS per run (scraping every company is
     # impractical). None = no cap (scrape all). Bound it in production.
     max_companies_per_ats: int | None = Field(default=50, ge=1)
+    # Per-ATS overrides of the cap above, e.g. {"workday": 5}. A Workday
+    # "company" is a huge enterprise tenant (Accenture ≈ 60k postings), so
+    # capping it low keeps scrapes fast. None as a value = no cap for that ATS.
+    per_ats_overrides: dict[str, int | None] = Field(default_factory=dict)
     # Concurrent company fetches within a single ATS. Bounded for politeness
     # (one ATS is scraped at a time, so this is per-provider parallelism).
     concurrency: int = Field(default=8, ge=1, le=64)
+
+    def cap_for(self, ats: str) -> int | None:
+        """Company cap for an ATS — its override if set, else the global cap."""
+        return self.per_ats_overrides.get(ats, self.max_companies_per_ats)
 
 
 class AppConfig(BaseModel):
