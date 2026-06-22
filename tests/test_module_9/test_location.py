@@ -70,6 +70,31 @@ def test_us_locations_classified_us(loc):
     assert classify_location(loc) is US
 
 
+@pytest.mark.parametrize(
+    "loc",
+    [
+        # City-only listings (Adobe Workday patterns) — no state, still US:
+        "San Jose",
+        "Seattle",
+        "San Francisco",
+        "Greater Seattle Area",
+        "US Remote",
+        "Bay Area",
+        "South San Francisco",
+        "Lehi",
+        "NYC",
+    ],
+)
+def test_us_city_only_classified_us(loc):
+    assert classify_location(loc) is US
+
+
+def test_country_name_beats_city():
+    # A US-named city with an explicit foreign country is dropped.
+    assert classify_location("San Jose, Costa Rica") is NON_US
+    assert classify_location("India - Remote") is NON_US
+
+
 def test_state_roster_covers_all_us_states():
     from jobpulse.location import US_STATES
     # Every state resolves as US by both its code and its full name.

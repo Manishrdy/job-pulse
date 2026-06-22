@@ -78,14 +78,36 @@ COUNTRY_SYNONYMS: dict[str, set[str]] = {
     "IN": {"india", "bharat", "republic of india"},
 }
 
-# Home-country cities used as a *foreign* signal when that country isn't the
-# target (US is matched via states, so it needs no city list).
+# Major cities / metros per country. Used as a *positive* signal when that
+# country is the target (so a city-only listing like "Seattle" or "San Jose"
+# is recognized), and as a *foreign* signal when it isn't. Country names still
+# win, so "San Jose, Costa Rica" is dropped while bare "San Jose" is kept.
 COUNTRY_CITIES: dict[str, set[str]] = {
-    "US": set(),
+    "US": {
+        "new york", "new york city", "nyc", "brooklyn", "manhattan",
+        "san francisco", "south san francisco", "san jose", "oakland",
+        "seattle", "bellevue", "redmond", "kirkland", "austin", "boston",
+        "los angeles", "san diego", "santa monica", "culver city",
+        "chicago", "denver", "boulder", "atlanta", "dallas", "fort worth",
+        "houston", "miami", "orlando", "tampa", "philadelphia", "phoenix",
+        "tempe", "scottsdale", "portland", "san antonio", "washington dc",
+        "arlington", "mclean", "reston", "herndon", "pittsburgh", "raleigh",
+        "durham", "cary", "charlotte", "nashville", "columbus", "indianapolis",
+        "detroit", "ann arbor", "minneapolis", "salt lake city", "lehi",
+        "draper", "kansas city", "saint louis", "st. louis", "cincinnati",
+        "cleveland", "sacramento", "san mateo", "palo alto", "mountain view",
+        "sunnyvale", "santa clara", "cupertino", "menlo park", "irvine",
+        "pleasanton", "plano", "bellevue wa", "crystal city",
+        # metros / regions
+        "bay area", "san francisco bay area", "greater seattle area",
+        "silicon valley", "greater boston", "greater los angeles",
+        "new york metro", "research triangle",
+    },
     "IN": {
         "bangalore", "bengaluru", "hyderabad", "mumbai", "pune", "delhi",
         "new delhi", "gurgaon", "gurugram", "noida", "chennai", "kolkata",
         "ahmedabad", "jaipur", "kochi", "coimbatore", "indore", "nagpur",
+        "chandigarh", "thiruvananthapuram", "mysore", "mysuru", "vadodara",
     },
 }
 
@@ -101,7 +123,9 @@ ROW_COUNTRIES = {
     "romania", "bulgaria", "greece", "turkey", "türkiye", "russia", "ukraine",
     "belarus", "lithuania", "latvia", "estonia", "brazil", "brasil", "mexico",
     "méxico", "argentina", "chile", "colombia", "peru", "uruguay", "ecuador",
-    "venezuela", "japan", "china", "south korea", "north korea", "korea",
+    "venezuela", "costa rica", "panama", "guatemala", "honduras",
+    "el salvador", "nicaragua", "dominican republic", "bolivia", "paraguay",
+    "japan", "china", "south korea", "north korea", "korea",
     "taiwan", "pakistan", "bangladesh", "sri lanka", "nepal", "singapore",
     "malaysia", "thailand", "vietnam", "viet nam", "philippines", "indonesia",
     "cambodia", "hong kong", "macau", "australia", "new zealand",
@@ -162,6 +186,7 @@ class _CountryRules:
     name_re: re.Pattern
     clean_codes: frozenset[str]
     ambig_codes: frozenset[str]
+    home_city_re: re.Pattern
     foreign_re: re.Pattern
     foreign_city_re: re.Pattern
     foreign_codes: frozenset[str]
@@ -181,6 +206,7 @@ def _rules_for(country_code: str) -> _CountryRules:
         rules = _CountryRules(
             supported=False, iso_set=frozenset({code}),
             name_re=_phrase_regex(set()), clean_codes=frozenset(), ambig_codes=frozenset(),
+            home_city_re=_phrase_regex(set()),
             foreign_re=_phrase_regex(set()), foreign_city_re=_phrase_regex(set()),
             foreign_codes=frozenset(),
         )
@@ -213,6 +239,7 @@ def _rules_for(country_code: str) -> _CountryRules:
         supported=True, iso_set=iso_set,
         name_re=_phrase_regex(home_names),
         clean_codes=frozenset(clean), ambig_codes=frozenset(ambig),
+        home_city_re=_phrase_regex(COUNTRY_CITIES.get(code, set())),
         foreign_re=_phrase_regex(foreign_names),
         foreign_city_re=_phrase_regex(foreign_cities),
         foreign_codes=frozenset(foreign_codes),
@@ -235,8 +262,9 @@ def classify_location(
       2. A target country name / synonym, or a target **state full name**.
       3. A foreign country / region name, or a collision-free foreign ISO code.
       4. A *clean* target state code (one not shared with another country).
-      5. A foreign city name.
-      6. An *ambiguous* target state code (NC stays US, but TN/CA/DE only
+      5. A target **major city / metro** (Seattle, San Jose, Greater Seattle Area).
+      6. A foreign city name.
+      7. An *ambiguous* target state code (NC stays US, but TN/CA/DE only
          resolve here, after foreign cities like Chennai/Toronto are excluded).
     """
     rules = _rules_for(country_code)
@@ -254,6 +282,8 @@ def classify_location(
     if rules.foreign_re.search(location) or (tokens & rules.foreign_codes):
         return LocationMatch.NON_US
     if tokens & rules.clean_codes:
+        return LocationMatch.US
+    if rules.home_city_re.search(location):
         return LocationMatch.US
     if rules.foreign_city_re.search(location):
         return LocationMatch.NON_US
