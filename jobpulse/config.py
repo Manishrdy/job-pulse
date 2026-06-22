@@ -50,7 +50,13 @@ class Schedule(BaseModel):
 
 class Location(BaseModel):
     primary: str = "United States"
+    # ISO 3166-1 alpha-2 of the country to keep jobs for. Text-based location
+    # rules are US-specialized; other codes fall back to ISO-only matching.
+    country_code: str = "US"
     remote_preferred: bool = True
+    # Keep jobs whose country can't be determined (bare "Remote", empty
+    # location). False = strict: drop unless a confirmed-remote role.
+    keep_unknown: bool = True
 
 
 class DataLifecycle(BaseModel):

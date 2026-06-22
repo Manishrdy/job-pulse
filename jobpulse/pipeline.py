@@ -27,6 +27,7 @@ from jobpulse.cleanup import cleanup_old_jobs
 from jobpulse.config import AppConfig
 from jobpulse.database import get_connection
 from jobpulse.ingest import ingest_jobs, record_scrape_run, record_scrape_run_ats
+from jobpulse.location import purge_non_target_location
 from jobpulse.scraper import ScrapeFn, run_scrape
 
 log = logging.getLogger(__name__)
@@ -122,6 +123,12 @@ def run_scrape_pipeline(
         _set_progress(dict(progress))
 
     try:
+        # Housekeeping: clear out any previously-stored decisively-foreign jobs
+        # (e.g. before the location filter existed, or as the ruleset improves).
+        purged = purge_non_target_location(conn, config.location)
+        if purged:
+            log.info("Purged %d non-target-location jobs before scrape", purged)
+
         kwargs: dict[str, Any] = {
             "max_companies_per_ats": config.scrape.max_companies_per_ats,
             "on_company": _on_company,

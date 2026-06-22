@@ -30,6 +30,7 @@ from jobhive.models import Job as JobhiveJob
 from jobhive.scrapers import get_scraper
 
 from jobpulse.config import AppConfig
+from jobpulse.location import is_target_location
 from jobpulse.models import JobRecord
 
 log = logging.getLogger(__name__)
@@ -214,6 +215,7 @@ def run_scrape(
                     JobRecord.from_jobhive(job, company_name=entry.name)
                     for job in fetched
                     if title_matches(job.title, roles)
+                    and is_target_location(job.location, job.country_iso, job.is_remote, config.location)
                 ]
                 if on_company is not None:
                     on_company(ats, len(fetched), records)

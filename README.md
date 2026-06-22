@@ -136,11 +136,20 @@ Interactive API docs are then at `http://localhost:8000/docs`.
 ## Scraping & scheduling
 
 A scrape runs the full pipeline: fetch every configured ATS → filter by title
-against `target_roles` → dedup on `global_id` → score relevance → reconcile into
-the `jobs` table → log the run to `scrape_runs`. Company slugs come from
+against `target_roles` **and by location** (`location.country_code`, US by
+default) → dedup on `global_id` → score relevance → reconcile into the `jobs`
+table → log the run to `scrape_runs`. Company slugs come from
 `vendor/jobhive/ats-companies/{ats}.csv`; `scrape.max_companies_per_ats` caps how
 many are hit per run. All runs are **idempotent** (dedup) and **serialized** by a
 process-wide lock, so overlapping triggers or a restart mid-run never corrupt data.
+
+**Location filtering** (`location` in config.yaml): scrapers return every job a
+company posts worldwide, so each posting is classified US / non-US / unknown
+(ISO country code when present, else US state/city/synonym rules vs. a foreign
+country/region/city denylist). Confirmed-foreign jobs are dropped at ingest and
+purged from the DB on each scrape. `keep_unknown: false` also drops jobs whose
+country can't be confirmed (unless remote). Set `country_code` for a different
+region (text rules are US-specialized; others fall back to ISO matching).
 
 There are three ways to run it:
 
