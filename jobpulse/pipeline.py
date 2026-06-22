@@ -26,7 +26,7 @@ from typing import Any
 from jobpulse.cleanup import cleanup_old_jobs
 from jobpulse.config import AppConfig
 from jobpulse.database import get_connection
-from jobpulse.ingest import ingest_jobs, record_scrape_run
+from jobpulse.ingest import ingest_jobs, record_scrape_run, record_scrape_run_ats
 from jobpulse.scraper import ScrapeFn, run_scrape
 
 log = logging.getLogger(__name__)
@@ -88,30 +88,53 @@ def run_scrape_pipeline(
             kwargs["manifest_dir"] = manifest_dir
 
         result = run_scrape(config, **kwargs)
-        stats = ingest_jobs(conn, result.jobs, target_roles=config.target_roles)
+
+        # Ingest per ATS so we can record a per-ATS breakdown of the run.
+        per_ats: list[dict] = []
+        totals = {"inserted": 0, "updated": 0, "blocked": 0}
+        for slice_ in result.ats_results:
+            stats = ingest_jobs(conn, slice_.jobs, target_roles=config.target_roles)
+            per_ats.append(
+                {
+                    "ats_type": slice_.ats,
+                    "fetched": slice_.fetched,
+                    "inserted": stats.inserted,
+                    "updated": stats.updated,
+                    "blocked": stats.blocked,
+                    "errors": slice_.errors,
+                }
+            )
+            totals["inserted"] += stats.inserted
+            totals["updated"] += stats.updated
+            totals["blocked"] += stats.blocked
+
         duration = round(time.monotonic() - started, 2)
         status = "partial_failure" if result.errors else "success"
         error_msg = "; ".join(result.errors[:5]) if result.errors else None
 
-        record_scrape_run(
+        run_id = record_scrape_run(
             conn,
             schedule_slot=schedule_slot,
             ats_types_scraped=result.ats_types,
             jobs_fetched=result.total_fetched,
-            jobs_inserted=stats.inserted,
-            jobs_updated=stats.updated,
+            jobs_inserted=totals["inserted"],
+            jobs_updated=totals["updated"],
+            jobs_blocked=totals["blocked"],
             duration_seconds=duration,
             status=status,
             error_msg=error_msg,
         )
+        record_scrape_run_ats(conn, run_id, per_ats)
+
         outcome = {
             "status": status,
             "fetched": result.total_fetched,
-            "inserted": stats.inserted,
-            "updated": stats.updated,
-            "blocked": stats.blocked,
+            "inserted": totals["inserted"],
+            "updated": totals["updated"],
+            "blocked": totals["blocked"],
             "errors": len(result.errors),
             "duration_seconds": duration,
+            "per_ats": per_ats,
         }
         _set_state(last_scrape=outcome)
         log.info("Scrape pipeline finished: %s", outcome)

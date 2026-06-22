@@ -25,8 +25,8 @@
   <thead>
     <tr>
       <th>Run at</th><th>Slot</th><th>ATS</th>
-      <th>Fetched</th><th>Inserted</th><th>Updated</th><th>Deleted</th>
-      <th>Duration</th><th>Status</th><th>Error</th>
+      <th>Fetched</th><th>Inserted</th><th>Updated</th><th>Deleted</th><th>Blocked</th>
+      <th>Duration</th><th>Status</th><th>Error</th><th>Per-ATS</th>
     </tr>
   </thead>
   <tbody>
@@ -39,9 +39,33 @@
       <td>{{ run.jobs_inserted }}</td>
       <td>{{ run.jobs_updated }}</td>
       <td>{{ run.jobs_deleted }}</td>
+      <td>{{ run.jobs_blocked if run.jobs_blocked is not none else 0 }}</td>
       <td>{{ '%.1fs'|format(run.duration_seconds) if run.duration_seconds is not none else '—' }}</td>
       <td><span class="status status-{{ run.status }}">{{ run.status }}</span></td>
       <td class="error">{{ run.error_msg or '' }}</td>
+      <td class="per-ats">
+        {% set ats_rows = breakdown.get(run.id) %}
+        {% if ats_rows %}
+        <details>
+          <summary>{{ ats_rows|length }} ATS</summary>
+          <table class="mini-table">
+            <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th><th>Err</th></tr></thead>
+            <tbody>
+              {% for a in ats_rows %}
+              <tr>
+                <td>{{ a.ats_type }}</td>
+                <td>{{ a.jobs_fetched }}</td>
+                <td>{{ a.jobs_inserted }}</td>
+                <td>{{ a.jobs_updated }}</td>
+                <td>{{ a.jobs_blocked }}</td>
+                <td>{{ a.errors }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </details>
+        {% else %}—{% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

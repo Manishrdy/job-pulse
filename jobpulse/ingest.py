@@ -117,6 +117,7 @@ def record_scrape_run(
     jobs_inserted: int,
     jobs_updated: int,
     jobs_deleted: int = 0,
+    jobs_blocked: int = 0,
     duration_seconds: float | None = None,
     status: str,
     error_msg: str | None = None,
@@ -131,8 +132,8 @@ def record_scrape_run(
         """
         INSERT INTO scrape_runs (
             schedule_slot, ats_types_scraped, jobs_fetched, jobs_inserted,
-            jobs_updated, jobs_deleted, duration_seconds, status, error_msg
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            jobs_updated, jobs_deleted, jobs_blocked, duration_seconds, status, error_msg
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             schedule_slot,
@@ -141,6 +142,7 @@ def record_scrape_run(
             jobs_inserted,
             jobs_updated,
             jobs_deleted,
+            jobs_blocked,
             duration_seconds,
             status,
             error_msg,
@@ -148,12 +150,44 @@ def record_scrape_run(
     )
     conn.commit()
     log.info(
-        "Scrape run recorded: slot=%s status=%s fetched=%d inserted=%d updated=%d deleted=%d",
+        "Scrape run recorded: slot=%s status=%s fetched=%d inserted=%d updated=%d deleted=%d blocked=%d",
         schedule_slot,
         status,
         jobs_fetched,
         jobs_inserted,
         jobs_updated,
         jobs_deleted,
+        jobs_blocked,
     )
     return cursor.lastrowid
+
+
+def record_scrape_run_ats(
+    conn: sqlite3.Connection,
+    run_id: int,
+    rows: list[dict],
+) -> None:
+    """Insert the per-ATS breakdown rows for a scrape run.
+
+    Each row is ``{ats_type, fetched, inserted, updated, blocked, errors}``.
+    """
+    conn.executemany(
+        """
+        INSERT INTO scrape_run_ats (
+            run_id, ats_type, jobs_fetched, jobs_inserted, jobs_updated, jobs_blocked, errors
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                run_id,
+                r["ats_type"],
+                r.get("fetched", 0),
+                r.get("inserted", 0),
+                r.get("updated", 0),
+                r.get("blocked", 0),
+                r.get("errors", 0),
+            )
+            for r in rows
+        ],
+    )
+    conn.commit()

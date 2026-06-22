@@ -300,12 +300,28 @@ def scrape_logs_page(
     rows = conn.execute(
         "SELECT * FROM scrape_runs ORDER BY run_at DESC, id DESC LIMIT 100"
     ).fetchall()
+    runs = [dict(r) for r in rows]
+
+    # Per-ATS breakdown grouped by run id (only for the runs we're showing).
+    breakdown: dict[int, list[dict]] = {}
+    if runs:
+        run_ids = [r["id"] for r in runs]
+        placeholders = ",".join("?" for _ in run_ids)
+        ats_rows = conn.execute(
+            f"SELECT * FROM scrape_run_ats WHERE run_id IN ({placeholders}) "
+            f"ORDER BY jobs_fetched DESC",
+            run_ids,
+        ).fetchall()
+        for ar in ats_rows:
+            breakdown.setdefault(ar["run_id"], []).append(dict(ar))
+
     return templates.TemplateResponse(
         request,
         "scrape_logs.html",
         {
             "request": request,
-            "runs": [dict(r) for r in rows],
+            "runs": runs,
+            "breakdown": breakdown,
             "cron_enabled": config.cron.enabled,
             "pipeline_status": pipeline.get_status(),
         },

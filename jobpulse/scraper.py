@@ -21,6 +21,7 @@ from __future__ import annotations
 import csv
 import logging
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,13 +52,38 @@ class CompanyEntry:
 
 
 @dataclass
-class ScrapeResult:
-    """Outcome of a full scrape pass across all configured ATS platforms."""
+class AtsScrape:
+    """Per-ATS slice of a scrape pass — drives per-ATS logging."""
 
-    ats_types: list[str] = field(default_factory=list)
-    total_fetched: int = 0
+    ats: str
+    fetched: int = 0
     jobs: list[JobRecord] = field(default_factory=list)
+    errors: int = 0
+
+
+@dataclass
+class ScrapeResult:
+    """Outcome of a full scrape pass across all configured ATS platforms.
+
+    Holds per-ATS slices (``ats_results``) plus a flat list of error
+    messages. The ``ats_types`` / ``total_fetched`` / ``jobs`` properties
+    preserve the original aggregate interface for existing callers.
+    """
+
+    ats_results: list[AtsScrape] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+
+    @property
+    def ats_types(self) -> list[str]:
+        return [a.ats for a in self.ats_results]
+
+    @property
+    def total_fetched(self) -> int:
+        return sum(a.fetched for a in self.ats_results)
+
+    @property
+    def jobs(self) -> list[JobRecord]:
+        return [job for a in self.ats_results for job in a.jobs]
 
 
 def ats_priority_order(config: AppConfig) -> list[str]:
@@ -132,44 +158,60 @@ def run_scrape(
     manifest_dir: Path | str | None = None,
     max_companies_per_ats: int | None = None,
     scrape_fn: ScrapeFn = scrape_company,
+    concurrency: int | None = None,
 ) -> ScrapeResult:
     """Scrape every configured ATS in priority order, filter, and map.
 
+    ATS platforms are processed sequentially (so primary platforms run
+    first and we hit one provider at a time), but companies *within* an
+    ATS are fetched concurrently with a bounded thread pool — fetches are
+    network-bound, so this cuts wall-clock dramatically.
+
     ``scrape_fn(ats, identifier) -> list[Job]`` is injectable for tests.
-    ``max_companies_per_ats`` caps companies per platform (useful for
-    smoke runs against live APIs).
+    ``max_companies_per_ats`` caps companies per platform; ``concurrency``
+    overrides ``config.scrape.concurrency``.
     """
     result = ScrapeResult()
     roles = config.target_roles
+    workers = concurrency or config.scrape.concurrency
 
     for ats in ats_priority_order(config):
-        result.ats_types.append(ats)
+        ats_slice = AtsScrape(ats=ats)
+        result.ats_results.append(ats_slice)
+
         companies = load_company_manifest(ats, manifest_dir)
         if max_companies_per_ats is not None:
             companies = companies[:max_companies_per_ats]
+        if not companies:
+            continue
 
-        for entry in companies:
-            identifier = _scraper_arg(ats, entry)
+        def _fetch_one(entry: CompanyEntry, _ats: str = ats):
+            identifier = _scraper_arg(_ats, entry)
             try:
-                fetched = scrape_fn(ats, identifier)
-            except Exception as exc:  # defensive: never let one company kill the run
-                log.error("Unexpected error scraping %s/%s: %s", ats, identifier, exc)
-                result.errors.append(f"{ats}/{identifier}: {exc}")
-                continue
+                return entry, scrape_fn(_ats, identifier), None
+            except Exception as exc:  # never let one company kill the run
+                return entry, None, f"{_ats}/{identifier}: {exc}"
 
-            result.total_fetched += len(fetched)
-            for job in fetched:
-                if not title_matches(job.title, roles):
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for entry, fetched, error in pool.map(_fetch_one, companies):
+                if error is not None:
+                    log.error("Scrape error: %s", error)
+                    result.errors.append(error)
+                    ats_slice.errors += 1
                     continue
-                result.jobs.append(
-                    JobRecord.from_jobhive(job, company_name=entry.name)
-                )
+                ats_slice.fetched += len(fetched)
+                for job in fetched:
+                    if title_matches(job.title, roles):
+                        ats_slice.jobs.append(
+                            JobRecord.from_jobhive(job, company_name=entry.name)
+                        )
 
     log.info(
-        "Scrape pass complete: %d ATS, %d fetched, %d matched, %d errors",
-        len(result.ats_types),
+        "Scrape pass complete: %d ATS, %d fetched, %d matched, %d errors (concurrency=%d)",
+        len(result.ats_results),
         result.total_fetched,
         len(result.jobs),
         len(result.errors),
+        workers,
     )
     return result

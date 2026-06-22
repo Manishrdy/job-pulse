@@ -63,6 +63,9 @@ class Scrape(BaseModel):
     # Cap companies scraped per ATS per run (scraping every company is
     # impractical). None = no cap (scrape all). Bound it in production.
     max_companies_per_ats: int | None = Field(default=50, ge=1)
+    # Concurrent company fetches within a single ATS. Bounded for politeness
+    # (one ATS is scraped at a time, so this is per-provider parallelism).
+    concurrency: int = Field(default=8, ge=1, le=64)
 
 
 class AppConfig(BaseModel):

@@ -109,11 +109,31 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     jobs_inserted     INTEGER NOT NULL DEFAULT 0,
     jobs_updated      INTEGER NOT NULL DEFAULT 0,
     jobs_deleted      INTEGER NOT NULL DEFAULT 0,
+    jobs_blocked      INTEGER NOT NULL DEFAULT 0,
     duration_seconds  REAL,
     status            TEXT    NOT NULL,
     error_msg         TEXT
 );
+
+-- Per-ATS breakdown for a scrape run (FR-01.7, extended)
+CREATE TABLE IF NOT EXISTS scrape_run_ats (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        INTEGER NOT NULL REFERENCES scrape_runs(id) ON DELETE CASCADE,
+    ats_type      TEXT    NOT NULL,
+    jobs_fetched  INTEGER NOT NULL DEFAULT 0,
+    jobs_inserted INTEGER NOT NULL DEFAULT 0,
+    jobs_updated  INTEGER NOT NULL DEFAULT 0,
+    jobs_blocked  INTEGER NOT NULL DEFAULT 0,
+    errors        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_scrape_run_ats_run ON scrape_run_ats(run_id);
 """
+
+# Lightweight, idempotent column migrations for existing databases.
+# (init_db uses CREATE TABLE IF NOT EXISTS, which won't add new columns.)
+_MIGRATIONS = [
+    ("scrape_runs", "jobs_blocked", "INTEGER NOT NULL DEFAULT 0"),
+]
 
 FTS_TRIGGERS_SQL = """
 -- Keep FTS5 in sync with jobs table
@@ -145,12 +165,22 @@ def get_connection(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Add columns missing from older databases (idempotent)."""
+    for table, column, decl in _MIGRATIONS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            log.info("Migrated %s: added column %s", table, column)
+
+
 def init_db(config: AppConfig) -> sqlite3.Connection:
     db_path = Path(config.database.path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = get_connection(db_path)
     conn.executescript(SCHEMA_SQL)
     conn.executescript(FTS_TRIGGERS_SQL)
+    _apply_migrations(conn)
     conn.commit()
     log.info("Database initialized at %s", db_path)
     return conn
