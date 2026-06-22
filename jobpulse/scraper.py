@@ -42,6 +42,9 @@ DEFAULT_MANIFEST_DIR = Path(__file__).resolve().parent.parent / "vendor" / "jobh
 _FULL_URL_ATS = {"workday"}
 
 ScrapeFn = Callable[[str, str], list[JobhiveJob]]
+# Called (in the main thread) as each company's jobs are fetched:
+# (ats_type, raw_fetched_count, matched_records).
+OnCompany = Callable[[str, int, list[JobRecord]], None]
 
 
 @dataclass(frozen=True)
@@ -159,6 +162,7 @@ def run_scrape(
     max_companies_per_ats: int | None = None,
     scrape_fn: ScrapeFn = scrape_company,
     concurrency: int | None = None,
+    on_company: OnCompany | None = None,
 ) -> ScrapeResult:
     """Scrape every configured ATS in priority order, filter, and map.
 
@@ -166,6 +170,12 @@ def run_scrape(
     first and we hit one provider at a time), but companies *within* an
     ATS are fetched concurrently with a bounded thread pool — fetches are
     network-bound, so this cuts wall-clock dramatically.
+
+    When ``on_company`` is given, each company's matched records are handed
+    to it as they're fetched (in the main thread, so a callback can write to
+    SQLite safely) and are *not* retained on the result — this lets the
+    pipeline ingest incrementally so jobs appear live and survive a crash.
+    Without it, records accumulate on ``result`` (the original behavior).
 
     ``scrape_fn(ats, identifier) -> list[Job]`` is injectable for tests.
     ``max_companies_per_ats`` caps companies per platform; ``concurrency``
@@ -200,11 +210,15 @@ def run_scrape(
                     ats_slice.errors += 1
                     continue
                 ats_slice.fetched += len(fetched)
-                for job in fetched:
-                    if title_matches(job.title, roles):
-                        ats_slice.jobs.append(
-                            JobRecord.from_jobhive(job, company_name=entry.name)
-                        )
+                records = [
+                    JobRecord.from_jobhive(job, company_name=entry.name)
+                    for job in fetched
+                    if title_matches(job.title, roles)
+                ]
+                if on_company is not None:
+                    on_company(ats, len(fetched), records)
+                else:
+                    ats_slice.jobs.extend(records)
 
     log.info(
         "Scrape pass complete: %d ATS, %d fetched, %d matched, %d errors (concurrency=%d)",

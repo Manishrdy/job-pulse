@@ -1,0 +1,98 @@
+{# Live region of the Scrape Logs page. Polled every 2s while a run is in
+   progress; when idle it renders the controls and stops polling. #}
+{% set st = pipeline_status %}
+<div class="scrape-controls">
+  <span class="cron-status">
+    Scheduler:
+    {% if cron_enabled %}<span class="status status-success">enabled</span>
+    {% else %}<span class="status status-partial_failure">disabled (manual)</span>{% endif %}
+  </span>
+  {% if st.running %}
+    <span class="status status-partial_failure">running: {{ st.current }}…</span>
+    {# Self-sustaining poller: refreshes this region until the run ends. #}
+    <div hx-get="/partials/scrape-logs" hx-target="#scrape-live" hx-swap="innerHTML"
+         hx-trigger="every 2s" style="display:none"></div>
+  {% else %}
+    <button class="btn btn-apply" hx-post="/scrape/run" hx-target="#scrape-live" hx-swap="innerHTML">Run scrape now</button>
+    <button class="btn" hx-post="/cleanup/run" hx-target="#scrape-live" hx-swap="innerHTML">Run cleanup now</button>
+  {% endif %}
+</div>
+
+{% if st.running and st.current == 'scrape' %}
+<div class="live-progress">
+  <div class="progress-cards">
+    <div class="pcard"><div class="pval">{{ st.progress.fetched }}</div><div class="plabel">Fetched</div></div>
+    <div class="pcard"><div class="pval">{{ st.progress.inserted }}</div><div class="plabel">Inserted</div></div>
+    <div class="pcard"><div class="pval">{{ st.progress.updated }}</div><div class="plabel">Updated</div></div>
+    <div class="pcard"><div class="pval">{{ st.progress.blocked }}</div><div class="plabel">Blocked</div></div>
+  </div>
+  {% if st.progress.per_ats %}
+  <table class="mini-table">
+    <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th></tr></thead>
+    <tbody>
+      {% for a in st.progress.per_ats %}
+      <tr><td>{{ a.ats_type }}</td><td>{{ a.fetched }}</td><td>{{ a.inserted }}</td><td>{{ a.updated }}</td><td>{{ a.blocked }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if runs %}
+<div class="table-wrap">
+<table class="data-table logs-table">
+  <thead>
+    <tr>
+      <th>Run at</th><th>Slot</th><th>ATS</th>
+      <th>Fetched</th><th>Inserted</th><th>Updated</th><th>Deleted</th><th>Blocked</th>
+      <th>Duration</th><th>Status</th><th>Error</th><th>Per-ATS</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for run in runs %}
+    <tr>
+      <td>{{ run.run_at[:19].replace('T', ' ') if run.run_at else '' }}</td>
+      <td>{{ run.schedule_slot or '—' }}</td>
+      <td class="ats-list">{{ run.ats_types_scraped or '—' }}</td>
+      <td>{{ run.jobs_fetched }}</td>
+      <td>{{ run.jobs_inserted }}</td>
+      <td>{{ run.jobs_updated }}</td>
+      <td>{{ run.jobs_deleted }}</td>
+      <td>{{ run.jobs_blocked if run.jobs_blocked is not none else 0 }}</td>
+      <td>{{ '%.1fs'|format(run.duration_seconds) if run.duration_seconds is not none else '—' }}</td>
+      <td><span class="status status-{{ run.status }}">{{ run.status }}</span></td>
+      <td class="error">{{ run.error_msg or '' }}</td>
+      <td class="per-ats">
+        {% set ats_rows = breakdown.get(run.id) %}
+        {% if ats_rows %}
+        <details>
+          <summary>{{ ats_rows|length }} ATS</summary>
+          <table class="mini-table">
+            <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th><th>Err</th></tr></thead>
+            <tbody>
+              {% for a in ats_rows %}
+              <tr>
+                <td>{{ a.ats_type }}</td>
+                <td>{{ a.jobs_fetched }}</td>
+                <td>{{ a.jobs_inserted }}</td>
+                <td>{{ a.jobs_updated }}</td>
+                <td>{{ a.jobs_blocked }}</td>
+                <td>{{ a.errors }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </details>
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+  <div class="empty-state">
+    <p>No scrape runs recorded yet.</p>
+  </div>
+{% endif %}

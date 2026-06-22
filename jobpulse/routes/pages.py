@@ -122,6 +122,8 @@ def _feed_context(request: Request, conn: sqlite3.Connection, config: AppConfig)
         "ats_options": config.ats_platforms.all_platforms,
         "posted_presets": POSTED_PRESETS,
         "sort_options": SORT_OPTIONS,
+        # When a scrape is running, the feed auto-refreshes so new jobs appear live.
+        "scrape_running": pipeline.is_running(),
     }
 
 
@@ -291,12 +293,7 @@ def analytics_page(
 # --- Scrape logs -----------------------------------------------------------
 
 
-@router.get("/scrape-logs", response_class=HTMLResponse)
-def scrape_logs_page(
-    request: Request,
-    conn: sqlite3.Connection = Depends(get_db),
-    config: AppConfig = Depends(get_config),
-):
+def _scrape_logs_context(request: Request, conn: sqlite3.Connection, config: AppConfig) -> dict:
     rows = conn.execute(
         "SELECT * FROM scrape_runs ORDER BY run_at DESC, id DESC LIMIT 100"
     ).fetchall()
@@ -315,32 +312,61 @@ def scrape_logs_page(
         for ar in ats_rows:
             breakdown.setdefault(ar["run_id"], []).append(dict(ar))
 
+    return {
+        "request": request,
+        "runs": runs,
+        "breakdown": breakdown,
+        "cron_enabled": config.cron.enabled,
+        "pipeline_status": pipeline.get_status(),
+    }
+
+
+@router.get("/scrape-logs", response_class=HTMLResponse)
+def scrape_logs_page(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+):
+    return templates.TemplateResponse(request, "scrape_logs.html", _scrape_logs_context(request, conn, config))
+
+
+@router.get("/partials/scrape-logs", response_class=HTMLResponse)
+def scrape_logs_partial(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+):
+    """Live region of the scrape-logs page — polled every 2s while running."""
     return templates.TemplateResponse(
-        request,
-        "scrape_logs.html",
-        {
-            "request": request,
-            "runs": runs,
-            "breakdown": breakdown,
-            "cron_enabled": config.cron.enabled,
-            "pipeline_status": pipeline.get_status(),
-        },
+        request, "components/scrape_live.html", _scrape_logs_context(request, conn, config)
     )
 
 
 @router.post("/scrape/run", response_class=HTMLResponse)
-def scrape_run_action(config: AppConfig = Depends(get_config)):
+def scrape_run_action(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+):
     """Dev-mode manual trigger: run a scrape in the background (FR-01 manual).
 
-    Returns immediately; a run-lock prevents overlap. Refreshes the page so
-    the running indicator / new run row shows.
+    Returns immediately with the live region (now showing "running" + a 2s
+    poller); a run-lock prevents overlap.
     """
     pipeline.run_scrape_in_background(config, schedule_slot="manual")
-    return Response(status_code=204, headers={"HX-Refresh": "true"})
+    return templates.TemplateResponse(
+        request, "components/scrape_live.html", _scrape_logs_context(request, conn, config)
+    )
 
 
 @router.post("/cleanup/run", response_class=HTMLResponse)
-def cleanup_run_action(config: AppConfig = Depends(get_config)):
+def cleanup_run_action(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+):
     """Manual trigger: run TTL cleanup in the background."""
     pipeline.run_cleanup_in_background(config)
-    return Response(status_code=204, headers={"HX-Refresh": "true"})
+    return templates.TemplateResponse(
+        request, "components/scrape_live.html", _scrape_logs_context(request, conn, config)
+    )

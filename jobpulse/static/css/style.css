@@ -194,6 +194,20 @@ a:hover { text-decoration: underline; }
 .scrape-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cron-status { font-size: 13px; color: var(--muted); }
 
+/* Live progress (scrape logs) */
+.live-progress { margin: 14px 0; }
+.progress-cards { display: grid; grid-template-columns: repeat(4, max-content); gap: 12px; margin-bottom: 12px; }
+.pcard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 18px; }
+.pval { font-size: 22px; font-weight: 700; }
+.plabel { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+
+/* Live feed banner */
+.live-banner {
+  display: inline-block; margin-bottom: 12px; padding: 5px 12px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600;
+}
+.live-banner::first-letter { color: var(--green); }
+
 /* Status pills (scrape logs) */
 .status { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .status-success { background: #e7f6ec; color: var(--green); }

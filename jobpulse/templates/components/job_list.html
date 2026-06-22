@@ -1,4 +1,12 @@
 {# Results list — rendered standalone for HTMX swaps and included by feed.html. #}
+{% if scrape_running %}
+{# Live auto-refresh while a scrape runs: re-fetches this partial (with the
+   current filters) every 4s. When the run ends the next render omits this
+   element, so polling stops on its own. #}
+<div hx-get="/partials/jobs" hx-include="#filters" hx-target="#job-results"
+     hx-swap="innerHTML" hx-trigger="every 4s" style="display:none"></div>
+<div class="live-banner">● Scraping… new jobs appear here automatically</div>
+{% endif %}
 <div class="results-header">
   <span class="count">{{ total }} job{{ '' if total == 1 else 's' }}</span>
   {% if total %}<span class="page-info">Page {{ page }} of {{ pages }}</span>{% endif %}

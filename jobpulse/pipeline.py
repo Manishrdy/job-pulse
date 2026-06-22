@@ -34,10 +34,15 @@ log = logging.getLogger(__name__)
 # One lock for the whole pipeline: scrape and cleanup never run concurrently.
 _pipeline_lock = threading.Lock()
 
+def _empty_progress() -> dict[str, Any]:
+    return {"current_ats": None, "fetched": 0, "inserted": 0, "updated": 0, "blocked": 0, "per_ats": []}
+
+
 # Lightweight shared state for the UI to display.
 _state: dict[str, Any] = {
     "running": False,
     "current": None,        # "scrape" | "cleanup" | None
+    "progress": _empty_progress(),  # live counters during a scrape
     "last_scrape": None,    # result dict
     "last_cleanup": None,   # result dict
 }
@@ -47,12 +52,21 @@ _state_lock = threading.Lock()
 def get_status() -> dict[str, Any]:
     """Snapshot of pipeline state for the dashboard."""
     with _state_lock:
-        return dict(_state)
+        # Deep-ish copy so callers don't see the dict mutate mid-render.
+        snap = dict(_state)
+        snap["progress"] = dict(_state["progress"])
+        snap["progress"]["per_ats"] = list(_state["progress"]["per_ats"])
+        return snap
 
 
 def _set_state(**kwargs: Any) -> None:
     with _state_lock:
         _state.update(kwargs)
+
+
+def _set_progress(progress: dict[str, Any]) -> None:
+    with _state_lock:
+        _state["progress"] = progress
 
 
 def is_running() -> bool:
@@ -75,12 +89,42 @@ def run_scrape_pipeline(
         log.warning("Scrape requested but a pipeline run is already in progress — skipping")
         return {"status": "skipped", "reason": "another run in progress"}
 
+    progress = _empty_progress()
     _set_state(running=True, current="scrape")
+    _set_progress(progress)
     conn = get_connection(config.database.path)
     started = time.monotonic()
+
+    # Per-ATS accumulators, keyed by ats_type. Jobs are ingested and committed
+    # incrementally as each company is fetched, so they appear in the feed live
+    # and a mid-run crash keeps everything scraped so far.
+    per_ats: dict[str, dict] = {}
+
+    def _agg(ats: str) -> dict:
+        return per_ats.setdefault(
+            ats,
+            {"ats_type": ats, "fetched": 0, "inserted": 0, "updated": 0, "blocked": 0, "errors": 0},
+        )
+
+    def _on_company(ats: str, fetched_count: int, records: list) -> None:
+        stats = ingest_jobs(conn, records, target_roles=config.target_roles)  # commits
+        a = _agg(ats)
+        a["inserted"] += stats.inserted
+        a["updated"] += stats.updated
+        a["blocked"] += stats.blocked
+        # Update live progress snapshot for the dashboard poller.
+        progress["current_ats"] = ats
+        progress["fetched"] += fetched_count
+        progress["inserted"] += stats.inserted
+        progress["updated"] += stats.updated
+        progress["blocked"] += stats.blocked
+        progress["per_ats"] = [dict(v) for v in per_ats.values()]
+        _set_progress(dict(progress))
+
     try:
         kwargs: dict[str, Any] = {
             "max_companies_per_ats": config.scrape.max_companies_per_ats,
+            "on_company": _on_company,
         }
         if scrape_fn is not None:
             kwargs["scrape_fn"] = scrape_fn
@@ -89,25 +133,17 @@ def run_scrape_pipeline(
 
         result = run_scrape(config, **kwargs)
 
-        # Ingest per ATS so we can record a per-ATS breakdown of the run.
-        per_ats: list[dict] = []
-        totals = {"inserted": 0, "updated": 0, "blocked": 0}
+        # Fill in fetched/errors counts now that each ATS is fully scraped.
         for slice_ in result.ats_results:
-            stats = ingest_jobs(conn, slice_.jobs, target_roles=config.target_roles)
-            per_ats.append(
-                {
-                    "ats_type": slice_.ats,
-                    "fetched": slice_.fetched,
-                    "inserted": stats.inserted,
-                    "updated": stats.updated,
-                    "blocked": stats.blocked,
-                    "errors": slice_.errors,
-                }
-            )
-            totals["inserted"] += stats.inserted
-            totals["updated"] += stats.updated
-            totals["blocked"] += stats.blocked
+            a = _agg(slice_.ats)
+            a["fetched"] = slice_.fetched
+            a["errors"] = slice_.errors
 
+        totals = {
+            "inserted": sum(a["inserted"] for a in per_ats.values()),
+            "updated": sum(a["updated"] for a in per_ats.values()),
+            "blocked": sum(a["blocked"] for a in per_ats.values()),
+        }
         duration = round(time.monotonic() - started, 2)
         status = "partial_failure" if result.errors else "success"
         error_msg = "; ".join(result.errors[:5]) if result.errors else None
@@ -124,7 +160,7 @@ def run_scrape_pipeline(
             status=status,
             error_msg=error_msg,
         )
-        record_scrape_run_ats(conn, run_id, per_ats)
+        record_scrape_run_ats(conn, run_id, [_agg(a) for a in result.ats_types])
 
         outcome = {
             "status": status,
@@ -134,30 +170,39 @@ def run_scrape_pipeline(
             "blocked": totals["blocked"],
             "errors": len(result.errors),
             "duration_seconds": duration,
-            "per_ats": per_ats,
+            "per_ats": list(per_ats.values()),
         }
         _set_state(last_scrape=outcome)
         log.info("Scrape pipeline finished: %s", outcome)
         return outcome
-    except Exception as exc:  # record the failure, then re-raise
+    except Exception as exc:  # record the failure (partial work already committed)
         duration = round(time.monotonic() - started, 2)
-        record_scrape_run(
+        partial = {
+            "inserted": sum(a["inserted"] for a in per_ats.values()),
+            "updated": sum(a["updated"] for a in per_ats.values()),
+            "blocked": sum(a["blocked"] for a in per_ats.values()),
+        }
+        run_id = record_scrape_run(
             conn,
             schedule_slot=schedule_slot,
-            ats_types_scraped="",
-            jobs_fetched=0,
-            jobs_inserted=0,
-            jobs_updated=0,
+            ats_types_scraped=list(per_ats.keys()),
+            jobs_fetched=progress["fetched"],
+            jobs_inserted=partial["inserted"],
+            jobs_updated=partial["updated"],
+            jobs_blocked=partial["blocked"],
             duration_seconds=duration,
             status="failure",
             error_msg=str(exc),
         )
-        _set_state(last_scrape={"status": "failure", "error": str(exc)})
-        log.exception("Scrape pipeline failed")
+        if per_ats:
+            record_scrape_run_ats(conn, run_id, list(per_ats.values()))
+        _set_state(last_scrape={"status": "failure", "error": str(exc), **partial})
+        log.exception("Scrape pipeline failed (partial work kept)")
         raise
     finally:
         conn.close()
         _set_state(running=False, current=None)
+        _set_progress(_empty_progress())
         _pipeline_lock.release()
 
 

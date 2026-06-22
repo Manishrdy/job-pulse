@@ -28,8 +28,10 @@ def test_scrape_run_trigger(client: TestClient, monkeypatch: pytest.MonkeyPatch)
         pipeline, "run_scrape_in_background", lambda config, **kw: calls.append(kw) or True
     )
     resp = client.post("/scrape/run")
-    assert resp.headers.get("HX-Refresh") == "true"
+    assert resp.status_code == 200
     assert calls == [{"schedule_slot": "manual"}]
+    # Returns the live region (so the page starts polling without a full refresh).
+    assert "scrape-controls" in resp.text
 
 
 def test_cleanup_run_trigger(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -38,8 +40,9 @@ def test_cleanup_run_trigger(client: TestClient, monkeypatch: pytest.MonkeyPatch
         pipeline, "run_cleanup_in_background", lambda config: calls.append(True) or True
     )
     resp = client.post("/cleanup/run")
-    assert resp.headers.get("HX-Refresh") == "true"
+    assert resp.status_code == 200
     assert calls == [True]
+    assert "scrape-controls" in resp.text
 
 
 # --- App scheduler wiring --------------------------------------------------
