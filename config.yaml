@@ -27,11 +27,10 @@ ats_platforms:
     - workday
 
 schedule:
-  morning: "08:00"
-  afternoon: "13:00"
-  evening: "18:00"
-  cleanup: "02:00"
-  timezone: "US/Pacific"
+  scrape_times:        # one daily scrape; add more HH:MM entries for more runs/day
+    - "05:00"
+  cleanup_time: "02:00"
+  timezone: "America/New_York"   # 5 AM Eastern
 
 location:
   primary: "United States"

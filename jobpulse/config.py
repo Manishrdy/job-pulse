@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
+
+# HH:MM in 24-hour form (00:00–23:59).
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class ATSPlatforms(BaseModel):
@@ -20,11 +24,28 @@ class ATSPlatforms(BaseModel):
 
 
 class Schedule(BaseModel):
-    morning: str = "08:00"
-    afternoon: str = "13:00"
-    evening: str = "18:00"
-    cleanup: str = "02:00"
-    timezone: str = "US/Pacific"
+    # One scrape per time listed (24h HH:MM, in `timezone`). One entry = once
+    # a day; add more entries to scrape multiple times a day.
+    scrape_times: list[str] = Field(default_factory=lambda: ["05:00"])
+    cleanup_time: str = "02:00"
+    timezone: str = "America/New_York"
+
+    @field_validator("scrape_times")
+    @classmethod
+    def _valid_scrape_times(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("scrape_times must list at least one HH:MM time")
+        for t in v:
+            if not _TIME_RE.match(t):
+                raise ValueError(f"invalid scrape time {t!r}; expected 24h HH:MM")
+        return v
+
+    @field_validator("cleanup_time")
+    @classmethod
+    def _valid_cleanup_time(cls, v: str) -> str:
+        if not _TIME_RE.match(v):
+            raise ValueError(f"invalid cleanup_time {v!r}; expected 24h HH:MM")
+        return v
 
 
 class Location(BaseModel):

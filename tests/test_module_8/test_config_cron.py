@@ -64,8 +64,37 @@ def test_scrape_max_companies_null(tmp_path: Path):
     assert cfg.scrape.max_companies_per_ats is None
 
 
+def test_schedule_defaults_daily_5am_eastern(tmp_path: Path):
+    cfg = load_config(_write(tmp_path, BASE))
+    assert cfg.schedule.scrape_times == ["05:00"]
+    assert cfg.schedule.cleanup_time == "02:00"
+    assert cfg.schedule.timezone == "America/New_York"
+
+
+def test_schedule_custom_times(tmp_path: Path):
+    cfg = load_config(_write(tmp_path, {**BASE, "schedule": {"scrape_times": ["05:00", "17:30"]}}))
+    assert cfg.schedule.scrape_times == ["05:00", "17:30"]
+
+
+def test_schedule_empty_scrape_times_invalid(tmp_path: Path):
+    with pytest.raises(Exception):
+        load_config(_write(tmp_path, {**BASE, "schedule": {"scrape_times": []}}))
+
+
+def test_schedule_bad_time_format_invalid(tmp_path: Path):
+    with pytest.raises(Exception):
+        load_config(_write(tmp_path, {**BASE, "schedule": {"scrape_times": ["5am"]}}))
+
+
+def test_schedule_out_of_range_time_invalid(tmp_path: Path):
+    with pytest.raises(Exception):
+        load_config(_write(tmp_path, {**BASE, "schedule": {"scrape_times": ["25:00"]}}))
+
+
 def test_real_config_yaml_valid():
     # The shipped config.yaml parses and validates.
     cfg = load_config("config.yaml")
     assert cfg.target_roles
     assert cfg.ats_platforms.primary
+    assert cfg.schedule.scrape_times == ["05:00"]
+    assert cfg.schedule.timezone == "America/New_York"

@@ -1,10 +1,11 @@
 """In-process cron scheduler (Module 8).
 
 When ``cron.enabled`` is true, the app runs a background daemon thread that
-fires the scrape pipeline at the morning/afternoon/evening times and the
-cleanup pipeline at the nightly time — all from ``config.schedule`` in the
-configured timezone (FR-01.3 / §4.3). When disabled, this never starts and
-scraping is driven manually from the UI instead.
+fires the scrape pipeline at each time in ``schedule.scrape_times`` and the
+cleanup pipeline at ``schedule.cleanup_time`` — in the configured timezone.
+By default that's a single daily scrape at 05:00 America/New_York (5 AM ET)
+plus a nightly cleanup. When disabled, this never starts and scraping is
+driven manually from the UI (where it can be run any number of times).
 
 The matcher is intentionally minute-resolution and dependency-free: a tick
 every ``CHECK_INTERVAL`` seconds compares the current local ``HH:MM`` to
@@ -47,17 +48,16 @@ class CronScheduler:
         self._thread: threading.Thread | None = None
         self._last_fired: dict[str, date] = {}
 
-        # slot name -> ("HH:MM", action)
+        # slot key -> ("HH:MM", action). One scrape slot per configured time
+        # plus the nightly cleanup slot.
         s = config.schedule
         self._slots: dict[str, tuple[str, str]] = {
-            "morning": (s.morning, "scrape"),
-            "afternoon": (s.afternoon, "scrape"),
-            "evening": (s.evening, "scrape"),
-            "cleanup": (s.cleanup, "cleanup"),
+            f"scrape@{t}": (t, "scrape") for t in s.scrape_times
         }
+        self._slots[f"cleanup@{s.cleanup_time}"] = (s.cleanup_time, "cleanup")
 
     def _default_scrape(self, slot: str) -> None:
-        run_scrape_pipeline(self.config, schedule_slot=slot)
+        run_scrape_pipeline(self.config, schedule_slot="scheduled")
 
     def _default_cleanup(self) -> None:
         run_cleanup_pipeline(self.config)

@@ -16,7 +16,7 @@ filtering, tracking, and analyzing job applications.
 ## Why
 
 - Eliminate manual browsing of career pages, job boards, and LinkedIn.
-- Surface fresh jobs 3×/day before aggregators pick them up.
+- Surface fresh jobs on a daily scrape (configurable) before aggregators pick them up.
 - Track applications, blocklist companies, and keep personal analytics.
 - Stay minimal — a single Python process, SQLite, and cron. No containers.
 
@@ -149,14 +149,16 @@ There are three ways to run it:
 Set the master switch in `.env` (copy from `.env.example`):
 
 ```bash
-JOBPULSE_CRON_ENABLED=true     # fire scrapes 3x/day + nightly cleanup automatically
+JOBPULSE_CRON_ENABLED=true     # fire the daily scrape + nightly cleanup automatically
 JOBPULSE_CRON_ENABLED=false    # no automatic runs — trigger manually from the UI (dev)
 ```
 
-When `true`, the app starts a background scheduler that fires at the
-`schedule:` times in `config.yaml` (morning/afternoon/evening scrapes + nightly
-cleanup) in the configured timezone. When `false`, nothing runs automatically —
-ideal for development, where you don't want a restart kicking off a scrape.
+When `true`, the app starts a background scheduler that fires at each time in
+`schedule.scrape_times` (default a **single daily scrape at 05:00 America/New_York —
+5 AM ET**) plus `schedule.cleanup_time` nightly, in the configured timezone. Add
+more `scrape_times` entries to scrape several times a day. When `false`, nothing
+runs automatically — ideal for development, where you don't want a restart kicking
+off a scrape.
 
 ### 2. Manual trigger from the UI (dev)
 
