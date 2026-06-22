@@ -1,0 +1,35 @@
+{# One applied job as a table row with inline edit. The status select saves
+   on change; notes/follow-up save via the Save button. Both POST the whole
+   row (hx-include) to /applied/{id}/update and swap this <tr> in place. #}
+<tr class="applied-row" id="applied-{{ job.id }}">
+  <td class="ap-title">
+    <a href="{{ job.apply_url or job.url }}" target="_blank" rel="noopener">{{ job.title }}</a>
+    <div class="ap-sub">{{ job.company }} · {{ job.ats_type }}{% if job.location %} · {{ job.location }}{% endif %}</div>
+  </td>
+  <td class="ap-applied">{{ job.applied_at[:10] if job.applied_at else '' }}</td>
+  <td class="ap-status">
+    <select name="status"
+            hx-post="/applied/{{ job.id }}/update"
+            hx-include="closest tr"
+            hx-target="#applied-{{ job.id }}"
+            hx-swap="outerHTML">
+      {% for value, label in status_options %}
+      <option value="{{ value }}" {% if job.status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="ap-notes">
+    <input type="text" name="notes" value="{{ job.notes or '' }}" placeholder="notes…">
+  </td>
+  <td class="ap-followup">
+    <input type="date" name="follow_up_date" value="{{ job.follow_up_date or '' }}">
+  </td>
+  <td class="ap-save">
+    <button class="btn"
+            hx-post="/applied/{{ job.id }}/update"
+            hx-include="closest tr"
+            hx-target="#applied-{{ job.id }}"
+            hx-swap="outerHTML">Save</button>
+    {% if saved %}<span class="saved-tag">✓</span>{% endif %}
+  </td>
+</tr>

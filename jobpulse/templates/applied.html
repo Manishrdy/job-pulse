@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Applied · JobPulse{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Applied Jobs</h1>
+  <form class="inline-filters" method="get" action="/applied">
+    <input type="search" name="search" placeholder="search title / company" value="{{ filters.search }}">
+    <select name="status">
+      <option value="">All statuses</option>
+      {% for value, label in status_options %}
+      <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn" type="submit">Filter</button>
+  </form>
+</div>
+
+{% if applied %}
+<div class="table-wrap">
+<table class="data-table applied-table">
+  <thead>
+    <tr>
+      <th>Job</th><th>Applied</th><th>Status</th><th>Notes</th><th>Follow-up</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for job in applied %}
+      {% include "components/applied_card.html" %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+  <div class="empty-state">
+    <p>No applied jobs yet.</p>
+    <a href="/">Browse the feed</a>
+  </div>
+{% endif %}
+{% endblock %}

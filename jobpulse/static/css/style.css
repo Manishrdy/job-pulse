@@ -136,7 +136,48 @@ a:hover { text-decoration: underline; }
 .description { white-space: pre-wrap; margin-top: 16px; line-height: 1.6; }
 .muted { color: var(--muted); }
 
+/* Page heads (applied / blocklist / logs) */
+.page-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.page-head h1 { font-size: 22px; margin: 0; }
+.inline-filters { display: flex; gap: 8px; align-items: center; }
+.inline-filters input, .inline-filters select {
+  padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: #fff;
+}
+
+/* Data tables */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-size: 13px;
+}
+.data-table th, .data-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.data-table thead th { background: #f1f3f5; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table input, .data-table select {
+  padding: 5px 7px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; background: #fff; width: 100%;
+}
+
+.applied-table .ap-title a { font-weight: 600; }
+.applied-table .ap-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.applied-table .ap-status select { min-width: 130px; }
+.applied-table .ap-notes input { min-width: 160px; }
+.logs-table th, .logs-table td { white-space: nowrap; }
+.saved-tag { color: var(--green); font-weight: 700; margin-left: 6px; }
+
+/* Status pills (scrape logs) */
+.status { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.status-success { background: #e7f6ec; color: var(--green); }
+.status-partial_failure { background: #fff4e5; color: #b45309; }
+.status-failure { background: #fdeaea; color: var(--danger); }
+.logs-table .ats-list, .logs-table .error { color: var(--muted); font-size: 12px; }
+
 @media (max-width: 780px) {
   .feed-layout { grid-template-columns: 1fr; }
   .sidebar { position: static; }
+  .data-table { display: block; overflow-x: auto; }
 }

@@ -15,7 +15,7 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Form, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -33,6 +33,16 @@ PAGE_SIZE = 20
 # Time-posted presets surfaced in the filter dropdown (label, days).
 POSTED_PRESETS = [("Any time", ""), ("Last 24h", "1"), ("Last 2 days", "2"), ("Last 3 days", "3")]
 SORT_OPTIONS = [("Posted", "posted"), ("Relevance", "relevance"), ("Salary", "salary")]
+
+# Applied-job pipeline statuses (value, label) for the inline dropdown (FR-04.3).
+STATUS_OPTIONS = [
+    ("applied", "Applied"),
+    ("phone_screen", "Phone Screen"),
+    ("interview", "Interview"),
+    ("offer", "Offer"),
+    ("rejected", "Rejected"),
+    ("ghosted", "Ghosted"),
+]
 
 
 def _parse_filters(request: Request) -> tuple[dict, dict]:
@@ -166,3 +176,94 @@ def block_action(job_id: int, conn: sqlite3.Connection = Depends(get_db)):
         blocklist_service.add_company(conn, job["company"])
     # Reload the feed so every job from that company disappears at once.
     return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+# --- Applied tracker -------------------------------------------------------
+
+
+@router.get("/applied", response_class=HTMLResponse)
+def applied_page(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    search: str | None = None,
+    status: str | None = None,
+):
+    result = applied_service.list_applied(
+        conn, search=search or None, status=status or None, limit=200
+    )
+    ctx = {
+        "request": request,
+        "applied": result["jobs"],
+        "total": result["total"],
+        "filters": {"search": search or "", "status": status or ""},
+        "status_options": STATUS_OPTIONS,
+    }
+    return templates.TemplateResponse(request, "applied.html", ctx)
+
+
+@router.post("/applied/{applied_id}/update", response_class=HTMLResponse)
+def applied_update(
+    applied_id: int,
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    status: str = Form(...),
+    notes: str = Form(""),
+    follow_up_date: str = Form(""),
+):
+    """Inline edit of an applied row (status / notes / follow-up). Returns the
+    re-rendered row so HTMX can swap it in place (FR-04.3)."""
+    applied_service.update_applied(
+        conn,
+        applied_id,
+        status=status or None,
+        notes=notes,
+        follow_up_date=follow_up_date or None,
+    )
+    row = applied_service.get_applied(conn, applied_id)
+    return templates.TemplateResponse(
+        request,
+        "components/applied_card.html",
+        {"request": request, "job": row, "status_options": STATUS_OPTIONS, "saved": True},
+    )
+
+
+# --- Blocklist -------------------------------------------------------------
+
+
+@router.get("/blocklist", response_class=HTMLResponse)
+def blocklist_page(request: Request, conn: sqlite3.Connection = Depends(get_db)):
+    return templates.TemplateResponse(
+        request,
+        "blocklist.html",
+        {"request": request, "blocked": blocklist_service.list_blocked(conn)},
+    )
+
+
+@router.post("/blocklist/add", response_class=HTMLResponse)
+def blocklist_add(
+    conn: sqlite3.Connection = Depends(get_db),
+    company: str = Form(...),
+    reason: str = Form(""),
+):
+    if company.strip():
+        blocklist_service.add_company(conn, company, reason or None)
+    return Response(status_code=204, headers={"HX-Refresh": "true"})
+
+
+@router.post("/blocklist/{block_id}/remove", response_class=HTMLResponse)
+def blocklist_remove(block_id: int, conn: sqlite3.Connection = Depends(get_db)):
+    blocklist_service.remove_company(conn, block_id)
+    return HTMLResponse("")  # empty body → HTMX removes the row
+
+
+# --- Scrape logs -----------------------------------------------------------
+
+
+@router.get("/scrape-logs", response_class=HTMLResponse)
+def scrape_logs_page(request: Request, conn: sqlite3.Connection = Depends(get_db)):
+    rows = conn.execute(
+        "SELECT * FROM scrape_runs ORDER BY run_at DESC, id DESC LIMIT 100"
+    ).fetchall()
+    return templates.TemplateResponse(
+        request, "scrape_logs.html", {"request": request, "runs": [dict(r) for r in rows]}
+    )

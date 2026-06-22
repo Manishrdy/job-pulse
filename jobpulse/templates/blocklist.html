@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Blocklist · JobPulse{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Company Blocklist</h1>
+  <form class="inline-filters" hx-post="/blocklist/add" hx-swap="none">
+    <input type="text" name="company" placeholder="company to block" required>
+    <input type="text" name="reason" placeholder="reason (optional)">
+    <button class="btn btn-danger" type="submit">Block</button>
+  </form>
+</div>
+
+{% if blocked %}
+<table class="data-table blocklist-table">
+  <thead>
+    <tr><th>Company</th><th>Blocked</th><th>Reason</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for b in blocked %}
+    <tr id="block-{{ b.id }}">
+      <td class="company">{{ b.company }}</td>
+      <td>{{ b.blocked_at[:10] if b.blocked_at else '' }}</td>
+      <td class="reason">{{ b.reason or '—' }}</td>
+      <td>
+        <button class="btn"
+                hx-post="/blocklist/{{ b.id }}/remove"
+                hx-target="#block-{{ b.id }}"
+                hx-swap="outerHTML"
+                hx-confirm="Unblock {{ b.company }}? Its jobs will reappear.">Unblock</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="empty-state">
+    <p>No companies blocked.</p>
+  </div>
+{% endif %}
+{% endblock %}
