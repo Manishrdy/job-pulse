@@ -121,7 +121,10 @@ ROW_COUNTRIES = {
     "norway", "denmark", "finland", "iceland", "poland", "portugal",
     "czech republic", "czechia", "slovakia", "slovenia", "croatia", "hungary",
     "romania", "bulgaria", "greece", "turkey", "türkiye", "russia", "ukraine",
-    "belarus", "lithuania", "latvia", "estonia", "brazil", "brasil", "mexico",
+    "belarus", "lithuania", "latvia", "estonia", "serbia", "bosnia",
+    "bosnia and herzegovina", "montenegro", "north macedonia", "macedonia",
+    "albania", "kosovo", "moldova", "armenia", "azerbaijan", "kazakhstan",
+    "uzbekistan", "cyprus", "malta", "brazil", "brasil", "mexico",
     "méxico", "argentina", "chile", "colombia", "peru", "uruguay", "ecuador",
     "venezuela", "costa rica", "panama", "guatemala", "honduras",
     "el salvador", "nicaragua", "dominican republic", "bolivia", "paraguay",
@@ -158,7 +161,8 @@ ROW_CITIES = {
     "tel aviv", "jerusalem", "haifa", "dubai", "abu dhabi", "doha", "riyadh",
     "cairo", "lagos", "nairobi", "cape town", "johannesburg", "são paulo",
     "sao paulo", "rio de janeiro", "mexico city", "buenos aires", "bogotá",
-    "bogota", "santiago", "lima",
+    "bogota", "santiago", "lima", "belgrade", "sarajevo", "ljubljana",
+    "sofia", "zagreb", "yerevan", "tbilisi", "almaty", "tashkent", "baku",
 }
 # Rest-of-world ISO 3166-1 alpha-2 codes (Canada included).
 ROW_ISO2 = {
@@ -172,10 +176,18 @@ ROW_ISO2 = {
 }
 
 _SPLIT_RE = re.compile(r"[,/;|]")
+_SEP_RE = re.compile(r"[-_/]+")
+
+
+def _normalize(text: str) -> str:
+    """Turn separators (hyphen/underscore/slash) into spaces so phrase matching
+    works on forms like ``Remote-United-States`` / ``US-Remote``."""
+    return _SEP_RE.sub(" ", text)
 
 
 def _phrase_regex(phrases: set[str]) -> re.Pattern:
-    body = "|".join(re.escape(p) for p in sorted(phrases, key=len, reverse=True))
+    normed = {_normalize(p) for p in phrases}
+    body = "|".join(re.escape(p) for p in sorted(normed, key=len, reverse=True))
     return re.compile(r"\b(?:" + (body or r"(?!x)x") + r")\b", re.IGNORECASE)
 
 
@@ -276,16 +288,17 @@ def classify_location(
         return LocationMatch.UNKNOWN
 
     tokens = {t.strip().upper() for t in _SPLIT_RE.split(location)}
+    norm = _normalize(location)  # hyphen/underscore/slash -> space for phrase matching
 
-    if rules.name_re.search(location):
+    if rules.name_re.search(norm):
         return LocationMatch.US
-    if rules.foreign_re.search(location) or (tokens & rules.foreign_codes):
+    if rules.foreign_re.search(norm) or (tokens & rules.foreign_codes):
         return LocationMatch.NON_US
     if tokens & rules.clean_codes:
         return LocationMatch.US
-    if rules.home_city_re.search(location):
+    if rules.home_city_re.search(norm):
         return LocationMatch.US
-    if rules.foreign_city_re.search(location):
+    if rules.foreign_city_re.search(norm):
         return LocationMatch.NON_US
     if tokens & rules.ambig_codes:
         return LocationMatch.US

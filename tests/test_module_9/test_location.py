@@ -95,6 +95,20 @@ def test_country_name_beats_city():
     assert classify_location("India - Remote") is NON_US
 
 
+@pytest.mark.parametrize(
+    "loc",
+    ["Remote-United-States", "US-Remote", "Remote/US", "Remote - United States", "United-States"],
+)
+def test_hyphenated_us_remote_kept(loc):
+    # Separator-joined location forms must still classify as US.
+    assert classify_location(loc) is US
+
+
+def test_belgrade_serbia_is_foreign():
+    # Previously fell through to UNKNOWN; now a confirmed foreign country.
+    assert classify_location("Belgrade, Serbia (Hybrid)") is NON_US
+
+
 def test_state_roster_covers_all_us_states():
     from jobpulse.location import US_STATES
     # Every state resolves as US by both its code and its full name.
