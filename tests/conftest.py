@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import itertools
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 from jobhive.models import ATSType
 from jobhive.models import Job as JobhiveJob
 
+from jobpulse.app import create_app
 from jobpulse.config import AppConfig, load_config
 from jobpulse.database import init_db
 from jobpulse.models import JobRecord
@@ -98,3 +100,38 @@ def jobhive_job_factory():
 @pytest.fixture
 def record_factory():
     return make_record
+
+
+_seed_counter = itertools.count(1)
+
+
+def seed_job(conn: sqlite3.Connection, **overrides) -> int:
+    """Insert a row into ``jobs`` and return its id. Override any column."""
+    n = next(_seed_counter)
+    cols = {
+        "global_id": f"gh:{n}",
+        "url": "https://example.com/jobs/%d" % n,
+        "title": "Software Engineer",
+        "company": "Acme Corp",
+        "ats_type": "greenhouse",
+    }
+    cols.update(overrides)
+    names = ", ".join(cols)
+    placeholders = ", ".join("?" for _ in cols)
+    cur = conn.execute(
+        f"INSERT INTO jobs ({names}) VALUES ({placeholders})", tuple(cols.values())
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+@pytest.fixture
+def seed():
+    return seed_job
+
+
+@pytest.fixture
+def client(test_config: AppConfig):
+    app = create_app(test_config)
+    with TestClient(app) as c:
+        yield c
