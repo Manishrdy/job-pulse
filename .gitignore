@@ -39,6 +39,10 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Markdown (except root README.md)
+*.md
+!/README.md
+
 # uv
 .python-version
 
