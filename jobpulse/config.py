@@ -96,6 +96,15 @@ class Scrape(BaseModel):
     # Concurrent company fetches within a single ATS. Bounded for politeness
     # (one ATS is scraped at a time, so this is per-provider parallelism).
     concurrency: int = Field(default=8, ge=1, le=64)
+    # Skip companies that have proven to never post jobs in the target region.
+    # A company is skipped only after it has been *reachable* (returned jobs)
+    # for `skip_after_runs` runs in a row without one target-region job; skipped
+    # companies are re-probed every `recheck_days` so newly in-region companies
+    # are rediscovered. Companies that return nothing at all (a hiring lull or a
+    # dead slug) are never skipped — we can't tell those apart from a foreign co.
+    skip_unproductive: bool = True
+    skip_after_runs: int = Field(default=3, ge=1)
+    recheck_days: int = Field(default=30, ge=1)
 
     def cap_for(self, ats: str) -> int | None:
         """Company cap for an ATS — its override if set, else the global cap."""

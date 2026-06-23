@@ -125,9 +125,29 @@ CREATE TABLE IF NOT EXISTS scrape_run_ats (
     jobs_updated     INTEGER NOT NULL DEFAULT 0,
     jobs_blocked     INTEGER NOT NULL DEFAULT 0,
     errors           INTEGER NOT NULL DEFAULT 0,
-    duration_seconds REAL    NOT NULL DEFAULT 0
+    duration_seconds REAL    NOT NULL DEFAULT 0,
+    companies_skipped INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_scrape_run_ats_run ON scrape_run_ats(run_id);
+
+-- Per-company scrape yield, used to skip companies that never produce a job
+-- in the target region (see jobpulse/company_yield.py). Keyed by (ats, slug).
+-- A company is skipped on later runs once it has been *reachable* (returned
+-- jobs) for `skip_after_runs` consecutive runs without a single target-region
+-- job; skipped companies are re-probed every `recheck_days` so a company that
+-- starts hiring in-region is rediscovered.
+CREATE TABLE IF NOT EXISTS company_yield (
+    ats_type            TEXT    NOT NULL,
+    slug                TEXT    NOT NULL,
+    name                TEXT,
+    runs                INTEGER NOT NULL DEFAULT 0,
+    reachable_runs      INTEGER NOT NULL DEFAULT 0,
+    region_jobs_total   INTEGER NOT NULL DEFAULT 0,
+    unproductive_streak INTEGER NOT NULL DEFAULT 0,
+    last_region_at      TIMESTAMP,
+    last_scraped_at     TIMESTAMP,
+    PRIMARY KEY (ats_type, slug)
+);
 """
 
 # Lightweight, idempotent column migrations for existing databases.
@@ -135,6 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_scrape_run_ats_run ON scrape_run_ats(run_id);
 _MIGRATIONS = [
     ("scrape_runs", "jobs_blocked", "INTEGER NOT NULL DEFAULT 0"),
     ("scrape_run_ats", "duration_seconds", "REAL NOT NULL DEFAULT 0"),
+    ("scrape_run_ats", "companies_skipped", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 FTS_TRIGGERS_SQL = """

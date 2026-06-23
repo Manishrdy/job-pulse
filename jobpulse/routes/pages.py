@@ -27,6 +27,7 @@ from jobpulse.services import (
     analytics_service,
     applied_service,
     blocklist_service,
+    companies_service,
     jobs_service,
 )
 
@@ -288,6 +289,40 @@ def analytics_page(
         "range_presets": RANGE_PRESETS,
     }
     return templates.TemplateResponse(request, "analytics.html", ctx)
+
+
+# --- Companies (in-region yield) -------------------------------------------
+
+# Filter tabs for the Companies page (view key, label).
+COMPANY_VIEWS = [
+    ("foreign", "Not hiring in-region"),
+    ("zero", "Returned jobs, none in-region"),
+    ("productive", "Hiring in-region"),
+    ("all", "All tracked"),
+]
+
+
+@router.get("/companies", response_class=HTMLResponse)
+def companies_page(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+    view: str = Query("foreign"),
+):
+    if view not in dict(COMPANY_VIEWS):
+        view = "foreign"
+    threshold = config.scrape.skip_after_runs
+    ctx = {
+        "request": request,
+        "view": view,
+        "views": COMPANY_VIEWS,
+        "counts": companies_service.counts(conn, skip_after_runs=threshold),
+        "companies": companies_service.list_companies(conn, view=view, skip_after_runs=threshold),
+        "row_limit": companies_service.ROW_LIMIT,
+        "skip_after_runs": threshold,
+        "recheck_days": config.scrape.recheck_days,
+    }
+    return templates.TemplateResponse(request, "companies.html", ctx)
 
 
 # --- Scrape logs -----------------------------------------------------------

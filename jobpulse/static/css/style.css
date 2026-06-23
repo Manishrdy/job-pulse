@@ -290,6 +290,7 @@ h1, h2, h3 { letter-spacing: -0.015em; color: var(--text); }
 .range-pill:hover { text-decoration: none; color: var(--text); }
 .range-pill.active { background: var(--accent); color: #fff; box-shadow: 0 2px 8px -2px var(--accent-ring); }
 .range-pill.active:hover { color: #fff; }
+.pill-count { margin-left: 4px; font-size: 11px; font-weight: 600; opacity: .6; font-variant-numeric: tabular-nums; }
 
 .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 22px; }
 .card {

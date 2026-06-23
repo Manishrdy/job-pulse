@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Companies · JobPulse{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Companies</h1>
+  <div class="range-selector">
+    {% for key, label in views %}
+      <a class="range-pill {% if view == key %}active{% endif %}" href="/companies?view={{ key }}">
+        {{ label }} <span class="pill-count">{{ counts[key] }}</span>
+      </a>
+    {% endfor %}
+  </div>
+</div>
+
+<p class="muted">
+  In-region yield per company, built up over scrape runs. A company is
+  <strong>skipped</strong> on future runs once it has returned jobs for
+  {{ skip_after_runs }} runs in a row without one in the target region; skipped
+  companies are re-probed every {{ recheck_days }} days. Companies that returned
+  nothing at all are never skipped (a hiring lull, not a foreign company).
+</p>
+
+{% if companies %}
+{% if companies|length >= row_limit %}
+<p class="muted">Showing the first {{ row_limit }} rows.</p>
+{% endif %}
+<div class="table-wrap">
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Company</th><th>ATS</th><th>Runs</th><th>Reachable</th>
+      <th>In-region jobs</th><th>Foreign streak</th>
+      <th>Last in-region</th><th>Last scraped</th><th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in companies %}
+    <tr>
+      <td class="company">{{ c.name or c.slug }}</td>
+      <td>{{ c.ats_type }}</td>
+      <td>{{ c.runs }}</td>
+      <td>{{ c.reachable_runs }}</td>
+      <td>{{ c.region_jobs_total }}</td>
+      <td>{{ c.unproductive_streak }}</td>
+      <td>{{ c.last_region_at[:10] if c.last_region_at else '—' }}</td>
+      <td>{{ c.last_scraped_at[:10] if c.last_scraped_at else '—' }}</td>
+      <td>
+        {% if c.is_skipped %}<span class="status status-partial_failure">skipped</span>
+        {% elif c.region_jobs_total %}<span class="status status-success">hiring</span>
+        {% else %}<span class="status">tracking</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+  <div class="empty-state">
+    <p>No company yield data for this view yet.</p>
+    <p class="muted">It builds up as scrapes run — check back after a full run.</p>
+  </div>
+{% endif %}
+{% endblock %}

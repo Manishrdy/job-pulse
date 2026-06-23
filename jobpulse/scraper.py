@@ -30,6 +30,7 @@ from jobhive.exceptions import CompanyNotFoundError, ScraperError
 from jobhive.models import Job as JobhiveJob
 from jobhive.scrapers import get_scraper
 
+from jobpulse.company_yield import CompanyYield
 from jobpulse.config import AppConfig
 from jobpulse.location import is_target_location
 from jobpulse.models import JobRecord
@@ -47,6 +48,10 @@ ScrapeFn = Callable[[str, str], list[JobhiveJob]]
 # Called (in the main thread) as each company's jobs are fetched:
 # (ats_type, raw_fetched_count, matched_records).
 OnCompany = Callable[[str, int, list[JobRecord]], None]
+# Predicate deciding whether a company should be skipped this run (it has
+# proven, over prior runs, to never post in the target region). Injected so the
+# scraper stays free of any database dependency.
+SkipCompany = Callable[[str, "CompanyEntry"], bool]
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,9 @@ class AtsScrape:
     jobs: list[JobRecord] = field(default_factory=list)
     errors: int = 0
     duration: float = 0.0  # wall-clock seconds spent on this ATS
+    skipped: int = 0  # companies skipped this run (proven unproductive)
+    # Per-company outcomes this run, fed back to company_yield tracking.
+    yields: list[tuple[str, CompanyYield]] = field(default_factory=list)
 
 
 @dataclass
@@ -166,6 +174,7 @@ def run_scrape(
     scrape_fn: ScrapeFn = scrape_company,
     concurrency: int | None = None,
     on_company: OnCompany | None = None,
+    skip_company: SkipCompany | None = None,
 ) -> ScrapeResult:
     """Scrape every configured ATS in priority order, filter, and map.
 
@@ -182,7 +191,11 @@ def run_scrape(
 
     ``scrape_fn(ats, identifier) -> list[Job]`` is injectable for tests.
     ``max_companies_per_ats`` caps companies per platform; ``concurrency``
-    overrides ``config.scrape.concurrency``.
+    overrides ``config.scrape.concurrency``. When ``skip_company`` is given,
+    companies it returns True for are dropped before fetching (proven to never
+    post in the target region — see :mod:`jobpulse.company_yield`); the count is
+    recorded on each ``AtsScrape.skipped``. Every fetched company's outcome is
+    appended to ``AtsScrape.yields`` so the caller can update that tracking.
     """
     result = ScrapeResult()
     roles = config.target_roles
@@ -198,6 +211,13 @@ def run_scrape(
         cap = max_companies_per_ats if max_companies_per_ats is not None else config.scrape.cap_for(ats)
         if cap is not None:
             companies = companies[:cap]
+        # Drop companies proven (over prior runs) to never post in-region. The
+        # re-probe cadence is baked into skip_company, so this is safe to apply
+        # blindly here. Skipping happens after the cap so caps stay meaningful.
+        if skip_company is not None:
+            kept = [c for c in companies if not skip_company(ats, c)]
+            ats_slice.skipped = len(companies) - len(kept)
+            companies = kept
         if not companies:
             continue
 
@@ -217,12 +237,21 @@ def run_scrape(
                     ats_slice.errors += 1
                     continue
                 ats_slice.fetched += len(fetched)
-                records = [
-                    JobRecord.from_jobhive(job, company_name=entry.name)
-                    for job in fetched
-                    if title_matches(job.title, roles)
-                    and is_target_location(job.location, job.country_iso, job.is_remote, config.location)
-                ]
+                # One location check per job: region_count drives yield tracking
+                # (region-only, role-agnostic), records keep only role matches.
+                region_count = 0
+                records: list[JobRecord] = []
+                for job in fetched:
+                    in_region = is_target_location(
+                        job.location, job.country_iso, job.is_remote, config.location
+                    )
+                    if in_region:
+                        region_count += 1
+                        if title_matches(job.title, roles):
+                            records.append(JobRecord.from_jobhive(job, company_name=entry.name))
+                ats_slice.yields.append(
+                    (ats, CompanyYield(entry.slug, entry.name, len(fetched), region_count))
+                )
                 if on_company is not None:
                     on_company(ats, len(fetched), records)
                 else:
@@ -230,10 +259,11 @@ def run_scrape(
         ats_slice.duration = round(time.monotonic() - ats_started, 2)
 
     log.info(
-        "Scrape pass complete: %d ATS, %d fetched, %d matched, %d errors (concurrency=%d)",
+        "Scrape pass complete: %d ATS, %d fetched, %d matched, %d skipped, %d errors (concurrency=%d)",
         len(result.ats_results),
         result.total_fetched,
         len(result.jobs),
+        sum(a.skipped for a in result.ats_results),
         len(result.errors),
         workers,
     )

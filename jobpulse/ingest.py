@@ -169,14 +169,15 @@ def record_scrape_run_ats(
 ) -> None:
     """Insert the per-ATS breakdown rows for a scrape run.
 
-    Each row is ``{ats_type, fetched, inserted, updated, blocked, errors}``.
+    Each row is ``{ats_type, fetched, inserted, updated, blocked, errors,
+    duration, skipped}`` (missing keys default to 0).
     """
     conn.executemany(
         """
         INSERT INTO scrape_run_ats (
             run_id, ats_type, jobs_fetched, jobs_inserted, jobs_updated,
-            jobs_blocked, errors, duration_seconds
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            jobs_blocked, errors, duration_seconds, companies_skipped
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -188,6 +189,7 @@ def record_scrape_run_ats(
                 r.get("blocked", 0),
                 r.get("errors", 0),
                 r.get("duration", 0.0),
+                r.get("skipped", 0),
             )
             for r in rows
         ],

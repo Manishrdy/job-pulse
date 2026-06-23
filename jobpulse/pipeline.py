@@ -24,11 +24,12 @@ import time
 from typing import Any
 
 from jobpulse.cleanup import cleanup_old_jobs
+from jobpulse.company_yield import load_skip_set, record_company_yields
 from jobpulse.config import AppConfig
 from jobpulse.database import get_connection
 from jobpulse.ingest import ingest_jobs, record_scrape_run, record_scrape_run_ats
 from jobpulse.location import purge_non_target_location
-from jobpulse.scraper import ScrapeFn, run_scrape
+from jobpulse.scraper import CompanyEntry, ScrapeFn, run_scrape
 
 log = logging.getLogger(__name__)
 
@@ -104,7 +105,8 @@ def run_scrape_pipeline(
     def _agg(ats: str) -> dict:
         return per_ats.setdefault(
             ats,
-            {"ats_type": ats, "fetched": 0, "inserted": 0, "updated": 0, "blocked": 0, "errors": 0},
+            {"ats_type": ats, "fetched": 0, "inserted": 0, "updated": 0,
+             "blocked": 0, "errors": 0, "skipped": 0},
         )
 
     def _on_company(ats: str, fetched_count: int, records: list) -> None:
@@ -129,9 +131,25 @@ def run_scrape_pipeline(
         if purged:
             log.info("Purged %d non-target-location jobs before scrape", purged)
 
+        # Skip companies proven over prior runs to never post in-region. The
+        # skip set already honors the re-probe cadence; an empty set (feature
+        # off, or first-ever run) means nothing is skipped.
+        skip_set: set[tuple[str, str]] = set()
+        if config.scrape.skip_unproductive:
+            skip_set = load_skip_set(
+                conn,
+                skip_after_runs=config.scrape.skip_after_runs,
+                recheck_days=config.scrape.recheck_days,
+            )
+            if skip_set:
+                log.info("Skipping %d companies proven unproductive in-region", len(skip_set))
+
+        def _skip(ats: str, entry: CompanyEntry) -> bool:
+            return (ats, entry.slug) in skip_set
+
         # No max_companies_per_ats here — run_scrape applies the per-ATS caps
         # (config.scrape.cap_for) so e.g. Workday can be capped lower than others.
-        kwargs: dict[str, Any] = {"on_company": _on_company}
+        kwargs: dict[str, Any] = {"on_company": _on_company, "skip_company": _skip}
         if scrape_fn is not None:
             kwargs["scrape_fn"] = scrape_fn
         if manifest_dir is not None:
@@ -139,12 +157,17 @@ def run_scrape_pipeline(
 
         result = run_scrape(config, **kwargs)
 
-        # Fill in fetched/errors/duration now that each ATS is fully scraped.
+        # Persist this run's per-company yield so future runs can skip the
+        # foreign-only ones (and re-probe stale skips).
+        record_company_yields(conn, [y for s in result.ats_results for y in s.yields])
+
+        # Fill in fetched/errors/duration/skipped now that each ATS is scraped.
         for slice_ in result.ats_results:
             a = _agg(slice_.ats)
             a["fetched"] = slice_.fetched
             a["errors"] = slice_.errors
             a["duration"] = slice_.duration
+            a["skipped"] = slice_.skipped
 
         totals = {
             "inserted": sum(a["inserted"] for a in per_ats.values()),

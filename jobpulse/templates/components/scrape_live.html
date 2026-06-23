@@ -28,10 +28,10 @@
   </div>
   {% if st.progress.per_ats %}
   <table class="mini-table">
-    <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th></tr></thead>
+    <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th><th>Skip</th></tr></thead>
     <tbody>
       {% for a in st.progress.per_ats %}
-      <tr><td>{{ a.ats_type }}</td><td>{{ a.fetched }}</td><td>{{ a.inserted }}</td><td>{{ a.updated }}</td><td>{{ a.blocked }}</td></tr>
+      <tr><td>{{ a.ats_type }}</td><td>{{ a.fetched }}</td><td>{{ a.inserted }}</td><td>{{ a.updated }}</td><td>{{ a.blocked }}</td><td>{{ a.skipped or 0 }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -69,7 +69,7 @@
         <details>
           <summary>{{ ats_rows|length }} ATS</summary>
           <table class="mini-table">
-            <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th><th>Err</th><th>Time</th></tr></thead>
+            <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th><th>Skip</th><th>Err</th><th>Time</th></tr></thead>
             <tbody>
               {% for a in ats_rows %}
               <tr>
@@ -78,6 +78,7 @@
                 <td>{{ a.jobs_inserted }}</td>
                 <td>{{ a.jobs_updated }}</td>
                 <td>{{ a.jobs_blocked }}</td>
+                <td>{{ a.companies_skipped if a.companies_skipped is not none else 0 }}</td>
                 <td>{{ a.errors }}</td>
                 <td>{{ '%.0fs'|format(a.duration_seconds) if a.duration_seconds is not none else '—' }}</td>
               </tr>
