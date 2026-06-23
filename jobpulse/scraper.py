@@ -166,6 +166,34 @@ def scrape_company(ats: str, identifier: str, *, timeout: float = 30.0) -> list[
         return []
 
 
+def distribute_workers(
+    live_counts: dict[str, int],
+    ceiling_for: Callable[[str], int],
+    budget: int,
+) -> dict[str, int]:
+    """Split a global thread ``budget`` across ATS by live company count.
+
+    Each ATS gets a share proportional to how many companies it will actually
+    scrape this run (post cap + skip), clamped to ``[1, min(ceiling, count)]``
+    so a rate-limit-sensitive ATS never exceeds its politeness ceiling and a
+    tiny ATS never gets idle workers. If rounding overshoots the budget, trim
+    from the largest allocation. Recomputed every run, so as company_yield
+    prunes companies each ATS's share shrinks automatically.
+    """
+    active = {a: n for a, n in live_counts.items() if n > 0}
+    if not active:
+        return {}
+    total = sum(active.values())
+    alloc = {
+        a: min(max(1, round(budget * n / total)), ceiling_for(a), n)
+        for a, n in active.items()
+    }
+    while sum(alloc.values()) > budget and any(v > 1 for v in alloc.values()):
+        biggest = max(alloc, key=lambda a: alloc[a])
+        alloc[biggest] -= 1
+    return alloc
+
+
 def run_scrape(
     config: AppConfig,
     *,
@@ -176,22 +204,25 @@ def run_scrape(
     on_company: OnCompany | None = None,
     skip_company: SkipCompany | None = None,
 ) -> ScrapeResult:
-    """Scrape every configured ATS in priority order, filter, and map.
+    """Scrape every configured ATS, filter, and map.
 
-    ATS platforms are processed sequentially (so primary platforms run
-    first and we hit one provider at a time), but companies *within* an
-    ATS are fetched concurrently with a bounded thread pool — fetches are
-    network-bound, so this cuts wall-clock dramatically.
+    ATS platforms run in PARALLEL (each is a different host with its own rate
+    limit), and companies *within* an ATS are fetched concurrently on a bounded
+    inner pool. A global thread budget (``config.scrape.concurrency``) is split
+    across ATS by live company count (:func:`distribute_workers`), capped per
+    ATS by ``config.scrape.concurrency_for`` for politeness. ``ats_results``
+    stays in priority order regardless of which ATS finishes first.
 
-    When ``on_company`` is given, each company's matched records are handed
-    to it as they're fetched (in the main thread, so a callback can write to
-    SQLite safely) and are *not* retained on the result — this lets the
-    pipeline ingest incrementally so jobs appear live and survive a crash.
-    Without it, records accumulate on ``result`` (the original behavior).
+    When ``on_company`` is given, each company's matched records are handed to
+    it as they're fetched (from that ATS's worker thread — the pipeline's
+    callback opens a per-thread SQLite connection, so writes are thread-safe)
+    and are *not* retained on the result — this lets the pipeline ingest
+    incrementally so jobs appear live and survive a crash. Without it, records
+    accumulate on ``result`` (the original behavior).
 
     ``scrape_fn(ats, identifier) -> list[Job]`` is injectable for tests.
     ``max_companies_per_ats`` caps companies per platform; ``concurrency``
-    overrides ``config.scrape.concurrency``. When ``skip_company`` is given,
+    overrides the global budget (and per-ATS ceiling). When ``skip_company`` is given,
     companies it returns True for are dropped before fetching (proven to never
     post in the target region — see :mod:`jobpulse.company_yield`); the count is
     recorded on each ``AtsScrape.skipped``. Every fetched company's outcome is
@@ -199,34 +230,23 @@ def run_scrape(
     """
     result = ScrapeResult()
     roles = config.target_roles
-    workers = concurrency or config.scrape.concurrency
 
-    for ats in ats_priority_order(config):
-        ats_slice = AtsScrape(ats=ats)
-        result.ats_results.append(ats_slice)
+    def _scrape_one_ats(
+        ats: str, companies: list[CompanyEntry], ats_slice: AtsScrape, workers: int
+    ) -> None:
+        """Fetch + filter one ATS's companies on a bounded inner pool.
 
-        companies = load_company_manifest(ats, manifest_dir)
-        # Per-ATS cap (e.g. Workday=5) overrides the global cap; an explicit
-        # max_companies_per_ats argument still wins for callers/tests.
-        cap = max_companies_per_ats if max_companies_per_ats is not None else config.scrape.cap_for(ats)
-        if cap is not None:
-            companies = companies[:cap]
-        # Drop companies proven (over prior runs) to never post in-region. The
-        # re-probe cadence is baked into skip_company, so this is safe to apply
-        # blindly here. Skipping happens after the cap so caps stay meaningful.
-        if skip_company is not None:
-            kept = [c for c in companies if not skip_company(ats, c)]
-            ats_slice.skipped = len(companies) - len(kept)
-            companies = kept
-        if not companies:
-            continue
+        Runs in its own outer-pool thread, so it mutates only its own
+        ``ats_slice``; it touches the shared ``result.errors`` (append-only,
+        atomic) and the ``on_company`` callback (made thread-safe by the caller).
+        """
 
-        def _fetch_one(entry: CompanyEntry, _ats: str = ats):
-            identifier = _scraper_arg(_ats, entry)
+        def _fetch_one(entry: CompanyEntry):
+            identifier = _scraper_arg(ats, entry)
             try:
-                return entry, scrape_fn(_ats, identifier), None
+                return entry, scrape_fn(ats, identifier), None
             except Exception as exc:  # never let one company kill the run
-                return entry, None, f"{_ats}/{identifier}: {exc}"
+                return entry, None, f"{ats}/{identifier}: {exc}"
 
         ats_started = time.monotonic()
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -258,13 +278,56 @@ def run_scrape(
                     ats_slice.jobs.extend(records)
         ats_slice.duration = round(time.monotonic() - ats_started, 2)
 
+    # Prep every ATS first (manifest → cap → skip filter), in priority order, so
+    # we know each ATS's live company count before distributing the thread budget.
+    preps: list[tuple[str, list[CompanyEntry], AtsScrape]] = []
+    for ats in ats_priority_order(config):
+        ats_slice = AtsScrape(ats=ats)
+        result.ats_results.append(ats_slice)  # keeps priority order regardless of finish order
+        companies = load_company_manifest(ats, manifest_dir)
+        # Per-ATS cap (e.g. Workday=5) overrides the global cap; an explicit
+        # max_companies_per_ats argument still wins for callers/tests.
+        cap = max_companies_per_ats if max_companies_per_ats is not None else config.scrape.cap_for(ats)
+        if cap is not None:
+            companies = companies[:cap]
+        # Drop companies proven (over prior runs) to never post in-region. The
+        # re-probe cadence is baked into skip_company, so this is safe to apply
+        # blindly here. Skipping happens after the cap so caps stay meaningful.
+        if skip_company is not None:
+            kept = [c for c in companies if not skip_company(ats, c)]
+            ats_slice.skipped = len(companies) - len(kept)
+            companies = kept
+        preps.append((ats, companies, ats_slice))
+
+    # Distribute the global thread budget across ATS by live company count. An
+    # explicit ``concurrency`` arg forces that value as both budget and ceiling.
+    live_counts = {ats: len(c) for ats, c, _ in preps if c}
+    if concurrency is not None:
+        budget = concurrency
+
+        def ceiling_for(_ats: str) -> int:
+            return concurrency
+    else:
+        budget = config.scrape.concurrency
+        ceiling_for = config.scrape.concurrency_for
+    alloc = distribute_workers(live_counts, ceiling_for, budget)
+
+    # Run ATS in PARALLEL — each is a different host with its own rate limit.
+    # Each ATS thread blocks on its own bounded inner pool, so total in-flight
+    # company fetches stay within the budget.
+    active = [(ats, c, s) for ats, c, s in preps if c]
+    if active:
+        with ThreadPoolExecutor(max_workers=len(active), thread_name_prefix="ats") as outer:
+            list(outer.map(lambda it: _scrape_one_ats(it[0], it[1], it[2], alloc[it[0]]), active))
+
     log.info(
-        "Scrape pass complete: %d ATS, %d fetched, %d matched, %d skipped, %d errors (concurrency=%d)",
+        "Scrape pass complete: %d ATS, %d fetched, %d matched, %d skipped, %d errors (budget=%d, alloc=%s)",
         len(result.ats_results),
         result.total_fetched,
         len(result.jobs),
         sum(a.skipped for a in result.ats_results),
         len(result.errors),
-        workers,
+        budget,
+        alloc,
     )
     return result

@@ -180,10 +180,17 @@ END;
 """
 
 
-def get_connection(db_path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.Connection(str(db_path))
+def get_connection(db_path: str | Path, *, check_same_thread: bool = True) -> sqlite3.Connection:
+    # check_same_thread=False is used for per-worker ingest connections that are
+    # created in a scrape worker thread but closed by the pipeline thread once
+    # the pool has joined (no concurrent use of a single connection).
+    conn = sqlite3.Connection(str(db_path), check_same_thread=check_same_thread)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # WAL permits one writer at a time; with ATS scraped in parallel, multiple
+    # ingest threads may write at once. busy_timeout makes a blocked writer wait
+    # and retry (up to 30s) instead of raising SQLITE_BUSY.
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
     return conn
 

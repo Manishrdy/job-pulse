@@ -102,6 +102,26 @@ def run_scrape_pipeline(
     # and a mid-run crash keeps everything scraped so far.
     per_ats: dict[str, dict] = {}
 
+    # ATS run in parallel, so _on_company fires from multiple worker threads.
+    # sqlite connections can't be shared across threads, so each worker lazily
+    # opens its own (WAL + busy_timeout serialize the writes); we track them to
+    # close in the finally. A lock guards the shared progress accumulators.
+    _tl = threading.local()
+    _thread_conns: list = []
+    _conns_lock = threading.Lock()
+    _prog_lock = threading.Lock()
+
+    def _ingest_conn():
+        c = getattr(_tl, "conn", None)
+        if c is None:
+            # check_same_thread=False so the pipeline thread can close it after
+            # the scrape pool joins (it's only ever *used* by this worker).
+            c = get_connection(config.database.path, check_same_thread=False)
+            _tl.conn = c
+            with _conns_lock:
+                _thread_conns.append(c)
+        return c
+
     def _agg(ats: str) -> dict:
         return per_ats.setdefault(
             ats,
@@ -110,19 +130,21 @@ def run_scrape_pipeline(
         )
 
     def _on_company(ats: str, fetched_count: int, records: list) -> None:
-        stats = ingest_jobs(conn, records, target_roles=config.target_roles)  # commits
-        a = _agg(ats)
-        a["inserted"] += stats.inserted
-        a["updated"] += stats.updated
-        a["blocked"] += stats.blocked
-        # Update live progress snapshot for the dashboard poller.
-        progress["current_ats"] = ats
-        progress["fetched"] += fetched_count
-        progress["inserted"] += stats.inserted
-        progress["updated"] += stats.updated
-        progress["blocked"] += stats.blocked
-        progress["per_ats"] = [dict(v) for v in per_ats.values()]
-        _set_progress(dict(progress))
+        stats = ingest_jobs(_ingest_conn(), records, target_roles=config.target_roles)  # commits
+        with _prog_lock:
+            a = _agg(ats)
+            a["inserted"] += stats.inserted
+            a["updated"] += stats.updated
+            a["blocked"] += stats.blocked
+            # Update live progress snapshot for the dashboard poller.
+            progress["current_ats"] = ats
+            progress["fetched"] += fetched_count
+            progress["inserted"] += stats.inserted
+            progress["updated"] += stats.updated
+            progress["blocked"] += stats.blocked
+            progress["per_ats"] = [dict(v) for v in per_ats.values()]
+            snapshot = dict(progress)
+        _set_progress(snapshot)
 
     try:
         # Housekeeping: clear out any previously-stored decisively-foreign jobs
@@ -231,6 +253,15 @@ def run_scrape_pipeline(
         raise
     finally:
         conn.close()
+        # Close the per-worker ingest connections (the worker threads are gone
+        # once run_scrape's pool has joined). Guarded so a close failure can
+        # never skip the state reset / lock release below.
+        with _conns_lock:
+            for c in _thread_conns:
+                try:
+                    c.close()
+                except Exception:
+                    log.warning("Failed to close an ingest connection", exc_info=True)
         _set_state(running=False, current=None)
         _set_progress(_empty_progress())
         _pipeline_lock.release()

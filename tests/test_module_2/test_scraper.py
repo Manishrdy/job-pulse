@@ -98,9 +98,12 @@ def test_run_scrape_priority_order_and_filtering(tmp_path: Path):
     assert all(isinstance(j, JobRecord) for j in result.jobs)
     assert all(j.title == "Software Engineer" for j in result.jobs)
 
-    # greenhouse (primary first in list) scraped before lever
+    # ATS run in parallel now, so call order is nondeterministic — assert the
+    # set of work done (2 greenhouse companies + 1 lever) and that the result
+    # slices keep configured priority order.
     ats_seen = [ats for ats, _ in call_order]
-    assert ats_seen == ["greenhouse", "greenhouse", "lever"]
+    assert sorted(ats_seen) == ["greenhouse", "greenhouse", "lever"]
+    assert result.ats_types == ["greenhouse", "lever"]
     # company display name carried from manifest
     assert {j.company for j in result.jobs} == {"GH One", "GH Two", "Lever One"}
 

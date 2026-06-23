@@ -44,7 +44,12 @@ cron:
 scrape:
   max_companies_per_ats: null   # no cap — scrape ALL companies per ATS (hours; for the 5 AM cron)
   per_ats_overrides: {}         # e.g. {workday: 5} to cap a slow ATS; empty = uncapped everywhere
-  concurrency: 8                # concurrent company fetches per ATS (raise for speed, lower for politeness)
+  concurrency: 20               # global thread budget across ALL ATS (they run in parallel; distributed by company count)
+  default_ats_concurrency: 8    # per-ATS concurrency ceiling default
+  per_ats_concurrency:          # per-ATS ceilings for hosts that rate-limit hard
+    workable: 2                 # workable spawns 4 internal threads/company → 2×4=8 in-flight (avoids 429)
+    workday: 2                  # heavy enterprise tenants
+    smartrecruiters: 4
   skip_unproductive: true       # skip companies proven to never post in the target region (big time saver)
   skip_after_runs: 3            # consecutive reachable-but-foreign runs before a company is skipped
   recheck_days: 30              # re-probe skipped companies this often so new in-region hiring is caught

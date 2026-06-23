@@ -93,9 +93,16 @@ class Scrape(BaseModel):
     # "company" is a huge enterprise tenant (Accenture ≈ 60k postings), so
     # capping it low keeps scrapes fast. None as a value = no cap for that ATS.
     per_ats_overrides: dict[str, int | None] = Field(default_factory=dict)
-    # Concurrent company fetches within a single ATS. Bounded for politeness
-    # (one ATS is scraped at a time, so this is per-provider parallelism).
-    concurrency: int = Field(default=8, ge=1, le=64)
+    # Global thread budget across ALL ATS. ATS now run in parallel (each is a
+    # different host with its own rate limit); this caps total concurrent
+    # company fetches, distributed across ATS by live company count.
+    concurrency: int = Field(default=20, ge=1, le=128)
+    # Per-ATS politeness ceiling on concurrent company fetches. The distributor
+    # never gives an ATS more workers than its ceiling here — key for hosts that
+    # rate-limit hard (e.g. workable: its scraper spawns 4 internal threads per
+    # company for .md detail fetches, so 2 here = 8 in-flight, the safe band).
+    per_ats_concurrency: dict[str, int] = Field(default_factory=dict)
+    default_ats_concurrency: int = Field(default=8, ge=1, le=64)
     # Skip companies that have proven to never post jobs in the target region.
     # A company is skipped only after it has been *reachable* (returned jobs)
     # for `skip_after_runs` runs in a row without one target-region job; skipped
@@ -109,6 +116,10 @@ class Scrape(BaseModel):
     def cap_for(self, ats: str) -> int | None:
         """Company cap for an ATS — its override if set, else the global cap."""
         return self.per_ats_overrides.get(ats, self.max_companies_per_ats)
+
+    def concurrency_for(self, ats: str) -> int:
+        """Per-ATS concurrency ceiling — its override if set, else the default."""
+        return self.per_ats_concurrency.get(ats, self.default_ats_concurrency)
 
 
 class AppConfig(BaseModel):

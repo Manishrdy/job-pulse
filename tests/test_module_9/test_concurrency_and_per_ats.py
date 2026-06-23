@@ -120,7 +120,9 @@ def test_cap_for_helper():
     assert s.cap_for("greenhouse") == 50
 
 
-def test_priority_order_preserved_across_ats(tmp_path: Path):
+def test_priority_order_preserved_in_results(tmp_path: Path):
+    # ATS now run in parallel, so the *fetch* order is nondeterministic, but the
+    # result slices must stay in configured priority order.
     (tmp_path / "greenhouse.csv").write_text("name,slug,url\nA,a,https://e.com/a\n")
     (tmp_path / "lever.csv").write_text("name,slug,url\nB,b,https://e.com/b\n")
     config = _config(tmp_path, ["greenhouse", "lever"])
@@ -131,9 +133,9 @@ def test_priority_order_preserved_across_ats(tmp_path: Path):
         seen_ats.append(ats)
         return []
 
-    run_scrape(config, manifest_dir=tmp_path, scrape_fn=fake)
-    # greenhouse (primary, listed first) before lever
-    assert seen_ats == ["greenhouse", "lever"]
+    result = run_scrape(config, manifest_dir=tmp_path, scrape_fn=fake)
+    assert set(seen_ats) == {"greenhouse", "lever"}          # both scraped
+    assert result.ats_types == ["greenhouse", "lever"]       # priority order preserved
 
 
 def test_error_contained_per_ats(tmp_path: Path):
