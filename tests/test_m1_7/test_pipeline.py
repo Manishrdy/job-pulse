@@ -160,6 +160,20 @@ def test_captcha_marks_rate_limited(test_db: sqlite3.Connection, test_config):
     assert out["jobs_inserted"] == 0
 
 
+def test_repeated_errors_are_deduped_in_run_log(test_db: sqlite3.Connection, test_config):
+    from jobpulse.google_search.search_client import RateLimitedError
+
+    # Every query hits the same 429 — error_msg should collapse, not repeat.
+    client = FakeClient([], raises=RateLimitedError("Google returned HTTP 429"))
+    _run(test_config, queries=["q1", "q2", "q3"], search_client=client, fetch=_router({}))
+
+    msg = test_db.execute(
+        "SELECT error_msg FROM search_runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()["error_msg"]
+    assert msg == "Google returned HTTP 429 (×3)"
+    assert "429; Google returned HTTP 429" not in msg  # not the repeated form
+
+
 def test_query_budget_cap(test_db: sqlite3.Connection, test_config):
     client = FakeClient([])
     out = gs_pipeline.run_google_search_pipeline(

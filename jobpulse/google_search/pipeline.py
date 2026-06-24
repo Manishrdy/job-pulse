@@ -124,6 +124,22 @@ def _make_search_client(config: AppConfig):
     return GoogleSearchClient()
 
 
+def _summarize_errors(errors: list[str], *, limit: int = 5) -> str | None:
+    """Collapse repeated error messages into one line with counts.
+
+    Avoids ``error_msg`` reading like "429; 429; 429; 429; 429" — repeats are
+    shown once as ``"<msg> (×N)"``, in first-seen order, capped at ``limit``
+    distinct messages.
+    """
+    if not errors:
+        return None
+    counts: dict[str, int] = {}
+    for e in errors:
+        counts[e] = counts.get(e, 0) + 1
+    parts = [(f"{msg} (×{n})" if n > 1 else msg) for msg, n in list(counts.items())[:limit]]
+    return "; ".join(parts)
+
+
 def run_google_search_pipeline(
     config: AppConfig,
     *,
@@ -244,7 +260,7 @@ def run_google_search_pipeline(
             jobs_skipped_blocked=jobs_skipped_blocked,
             duration_seconds=duration,
             status=status,
-            error_msg="; ".join(errors[:5]) if errors else None,
+            error_msg=_summarize_errors(errors),
         )
         outcome = {
             "status": status,
