@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from urllib.parse import quote_plus
 
 from jobpulse.google_search.search_client import (
@@ -46,10 +47,12 @@ class BrowserSearchClient:
         headless: bool = False,
         settle_seconds: float = 3.0,
         num_results: int = 20,
+        user_data_dir: str | None = None,
     ) -> None:
         self._headless = headless
         self._settle = settle_seconds
         self._num = num_results
+        self._user_data_dir = user_data_dir
         self._loop = asyncio.new_event_loop()
         self._browser = None  # nodriver.Browser, started lazily on first search
 
@@ -70,8 +73,17 @@ class BrowserSearchClient:
         if self._browser is None:
             import nodriver as uc
 
-            self._browser = await uc.start(headless=self._headless)
-            log.info("Launched Chrome via nodriver (headless=%s)", self._headless)
+            kwargs: dict = {"headless": self._headless}
+            if self._user_data_dir:
+                profile = os.path.expanduser(self._user_data_dir)
+                os.makedirs(profile, exist_ok=True)
+                kwargs["user_data_dir"] = profile
+            self._browser = await uc.start(**kwargs)
+            log.info(
+                "Launched Chrome via nodriver (headless=%s, profile=%s)",
+                self._headless,
+                kwargs.get("user_data_dir", "<temp>"),
+            )
         return self._browser
 
     async def _search_async(self, query: str) -> list[str]:

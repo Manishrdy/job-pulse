@@ -203,6 +203,13 @@ A second discovery channel that finds fresh postings via Google Search with
 Chrome via `nodriver`** (no chromedriver/Selenium) — Google reliably serves
 plain HTTP a `/sorry/` + 429 CAPTCHA, but the real browser is not rate-limited.
 Set `google_search.engine: "http"` to fall back to the legacy plain-httpx path.
+
+**First-run warm-up (important):** the browser engine reuses a persistent Chrome
+profile (`google_search.user_data_dir`, default `~/.jobpulse/chrome-profile`).
+On the very first search a Chrome window opens — if Google shows a CAPTCHA /
+consent page, **solve it once** (or sign into Google) in that window. The trust
+cookies persist in the profile, so later runs aren't challenged. A throwaway
+profile (the default before this) gets CAPTCHA'd on the first query every time.
 Queries are generated **from your config** — every `target_roles` × searchable
 `ats_platforms` — as `site:{domain} "{role}" "{location}"`. **US-only:** most
 ATS use a single `"United States"` query per role (per-city just multiplies

@@ -134,6 +134,11 @@ class GoogleSearch(BaseModel):
     headless: bool = False
     # Seconds to let the results page render before scraping (browser engine).
     settle_seconds: float = Field(default=3.0, ge=0)
+    # Persistent Chrome profile dir for the browser engine. Reusing one profile
+    # keeps Google's consent/login cookies, so you solve a CAPTCHA (or sign in)
+    # only ONCE instead of being challenged on a throwaway profile every run.
+    # Empty string forces nodriver's per-run temp profile (the old behavior).
+    user_data_dir: str = "~/.jobpulse/chrome-profile"
     # Hard cap on queries per run (rate_limiter enforces; overflow records a
     # 'partial' run rather than dropping silently). Kept small so the "Search
     # Internet" button is a polite batch — the 24h cache + shuffled query order

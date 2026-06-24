@@ -139,7 +139,11 @@ def _make_search_client(config: AppConfig):
     """Build the configured search engine: real Chrome (default) or legacy HTTP."""
     gs = config.google_search
     if gs.engine == "browser":
-        return BrowserSearchClient(headless=gs.headless, settle_seconds=gs.settle_seconds)
+        return BrowserSearchClient(
+            headless=gs.headless,
+            settle_seconds=gs.settle_seconds,
+            user_data_dir=gs.user_data_dir or None,
+        )
     return GoogleSearchClient()
 
 

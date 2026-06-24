@@ -137,3 +137,19 @@ def test_default_engine_is_browser():
     from jobpulse.config import GoogleSearch
 
     assert GoogleSearch().engine == "browser"
+
+
+def test_default_uses_persistent_profile():
+    from jobpulse.config import GoogleSearch
+
+    # A persistent profile (not a per-run temp dir) is the default — this is what
+    # keeps Google's trust cookies so CAPTCHA is solved once, not every run.
+    assert GoogleSearch().user_data_dir  # non-empty
+
+
+def test_client_records_user_data_dir():
+    c = BrowserSearchClient(settle_seconds=0, user_data_dir="~/.jobpulse/chrome-profile")
+    try:
+        assert c._user_data_dir == "~/.jobpulse/chrome-profile"
+    finally:
+        c.close()
