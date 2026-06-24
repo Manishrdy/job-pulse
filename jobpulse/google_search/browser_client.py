@@ -28,15 +28,21 @@ import random
 from urllib.parse import quote_plus
 
 from jobpulse.google_search.search_client import (
-    _CAPTCHA_MARKERS,
     CaptchaError,
     parse_result_urls,
 )
 
 log = logging.getLogger(__name__)
 
-# Extra CAPTCHA wording seen on the interactive (JS) results page.
-_BROWSER_CAPTCHA_MARKERS = (*_CAPTCHA_MARKERS, "type the characters", "not a robot")
+# High-confidence block wording (kept tight to avoid false positives — these
+# phrases appear on Google's CAPTCHA / "unusual traffic" interstitial, not on a
+# normal results page).
+_BROWSER_CAPTCHA_MARKERS = (
+    "unusual traffic",
+    "detected unusual",
+    "type the characters",
+    "our systems have detected",
+)
 
 
 class BrowserSearchClient:
@@ -88,8 +94,11 @@ class BrowserSearchClient:
         if "/sorry/" in (url or "") or "sorry.google.com" in (url or ""):
             raise CaptchaError(f"Google served a /sorry/ interstitial: {url}")
         low = html.lower()
-        if any(marker in low for marker in _BROWSER_CAPTCHA_MARKERS):
-            raise CaptchaError("Google served a CAPTCHA / unusual-traffic page")
+        for marker in _BROWSER_CAPTCHA_MARKERS:
+            if marker in low:
+                # Include the matched phrase so the run log confirms it's a real
+                # block (not a false positive) and which page tripped it.
+                raise CaptchaError(f"Google CAPTCHA page (matched {marker!r})")
 
     async def _ensure_browser(self):
         if self._browser is None:
