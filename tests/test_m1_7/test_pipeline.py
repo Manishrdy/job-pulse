@@ -229,6 +229,72 @@ def test_browser_engine_extracts_from_tab_html(test_db: sqlite3.Connection, test
     assert row["source"] == "google_search"
 
 
+def test_page2_block_still_ingests_page1_jobs(test_db: sqlite3.Connection, test_config):
+    """End-to-end: page 2 gets CAPTCHA'd, page 1's job still lands in the DB."""
+    import json
+
+    from jobpulse.google_search.browser_client import BrowserSearchClient
+
+    ld = {
+        "@type": "JobPosting",
+        "title": "Software Engineer",
+        "hiringOrganization": {"name": "Acme"},
+        "jobLocation": {"address": {"addressLocality": "Austin", "addressRegion": "TX"}},
+    }
+    job_page = f'<script type="application/ld+json">{json.dumps(ld)}</script>'
+    page1 = (
+        '<a href="https://boards.greenhouse.io/acme/jobs/1">x</a>'
+        '<a id="pnnext" href="/search?start=10">Next</a>'  # page 2 exists
+    )
+    captcha = "<html>Our systems have detected unusual traffic</html>"
+
+    class _Tab:
+        def __init__(self, html, url):
+            self._html, self.url = html, url
+
+        async def get_content(self):
+            return self._html
+
+        async def close(self):
+            pass
+
+    class _Browser:
+        def __init__(self):
+            self.opened = []
+
+        async def get(self, url, new_tab=False, **_k):
+            self.opened.append(url)
+            if "start=10" in url:
+                html = captcha            # page 2 → blocked
+            elif "boards.greenhouse.io/acme/jobs/1" in url:
+                html = job_page           # the result's job page (opened in a tab)
+            else:
+                html = page1              # page 1 results
+            return _Tab(html, url)
+
+        def stop(self):
+            pass
+
+    client = BrowserSearchClient(
+        settle_seconds=0, page_delay_min=0, page_delay_max=0, tab_settle_seconds=0, max_pages=2
+    )
+    client._browser = _Browser()
+    try:
+        out = gs_pipeline.run_google_search_pipeline(
+            test_config, queries=["q"], search_client=client,
+            fetch=lambda _u: None, rate_limiter=_no_delay_limiter(),
+        )
+    finally:
+        client.close()
+
+    # Page 1's job is in the DB even though page 2 was rate-limited.
+    assert out["jobs_inserted"] == 1
+    row = test_db.execute(
+        "SELECT title FROM jobs WHERE global_id='greenhouse:1'"
+    ).fetchone()
+    assert row is not None and row["title"] == "Software Engineer"
+
+
 def test_concurrent_run_skipped(test_config, monkeypatch):
     # Simulate an in-progress run by holding the lock.
     assert gs_pipeline._search_lock.acquire(blocking=False)
