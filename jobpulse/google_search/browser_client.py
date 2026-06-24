@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 from urllib.parse import quote_plus
 
 from jobpulse.google_search.search_client import (
@@ -50,6 +51,8 @@ class BrowserSearchClient:
         user_data_dir: str | None = None,
         max_pages: int = 2,
         tab_settle_seconds: float = 2.0,
+        page_delay_min: float = 8.0,
+        page_delay_max: float = 20.0,
     ) -> None:
         self._headless = headless
         self._settle = settle_seconds
@@ -57,8 +60,15 @@ class BrowserSearchClient:
         self._user_data_dir = user_data_dir
         self._max_pages = max(1, max_pages)
         self._tab_settle = tab_settle_seconds
+        self._page_delay_min = page_delay_min
+        self._page_delay_max = page_delay_max
         self._loop = asyncio.new_event_loop()
         self._browser = None  # nodriver.Browser, started lazily on first search
+
+    def _page_delay(self) -> float:
+        if self._page_delay_max <= 0:
+            return 0.0
+        return random.uniform(self._page_delay_min, self._page_delay_max)
 
     def _build_url(self, query: str, page: int = 0) -> str:
         url = (
@@ -103,10 +113,22 @@ class BrowserSearchClient:
         seen: set[str] = set()
         out: list[str] = []
         for page in range(self._max_pages):
+            if page > 0:
+                # Realistic pause before pulling the next results page.
+                await asyncio.sleep(self._page_delay())
             tab = await browser.get(self._build_url(query, page))
             await asyncio.sleep(self._settle)  # let results render
             html = await tab.get_content()
-            self._detect_block(html, getattr(tab, "url", "") or "")
+            try:
+                self._detect_block(html, getattr(tab, "url", "") or "")
+            except CaptchaError:
+                # If a later page is blocked, keep the results we already have
+                # (don't discard page 1). Only a blocked first page signals a
+                # real rate-limit to the caller.
+                if not out:
+                    raise
+                log.warning("CAPTCHA on page %d — keeping %d earlier results", page + 1, len(out))
+                break
             fresh = [u for u in parse_result_urls(html) if u not in seen]
             seen.update(fresh)
             out.extend(fresh)

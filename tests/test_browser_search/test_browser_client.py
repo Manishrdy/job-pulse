@@ -58,6 +58,10 @@ class _FakeBrowser:
 
 
 def _client_with(browser, **kw) -> BrowserSearchClient:
+    # Zero all real sleeps by default so tests are instant.
+    kw.setdefault("page_delay_min", 0)
+    kw.setdefault("page_delay_max", 0)
+    kw.setdefault("tab_settle_seconds", 0)
     c = BrowserSearchClient(settle_seconds=0, **kw)
     c._browser = browser  # skip real nodriver launch
     return c
@@ -136,6 +140,29 @@ def test_search_stops_when_no_next_page():
     finally:
         c.close()
     assert not any("start=10" in u for u in browser.opened)  # never fetched page 2
+
+
+def test_page2_captcha_keeps_page1_results():
+    # Page 1 returns results (+ pnnext); page 2 is CAPTCHA'd. Page 1 results must
+    # survive — the earlier bug discarded them when page 2 raised.
+    browser = _FakeBrowser(pages={
+        "start=10": "<html>Our systems have detected unusual traffic</html>",
+        "google.com/search": _PAGE1,
+    })
+    c = _client_with(browser, max_pages=2)
+    try:
+        urls = c.search("q")
+    finally:
+        c.close()
+    assert "https://boards.greenhouse.io/acme/jobs/1" in urls
+
+
+def test_page1_captcha_still_raises():
+    browser = _FakeBrowser("<html>Our systems have detected unusual traffic</html>")
+    c = _client_with(browser)
+    with pytest.raises(CaptchaError):
+        c.search("q")
+    c.close()
 
 
 # ── fetch_html (per-result tab) ────────────────────────────────────────────

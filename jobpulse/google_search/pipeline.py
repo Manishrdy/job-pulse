@@ -145,6 +145,8 @@ def _make_search_client(config: AppConfig):
             user_data_dir=gs.user_data_dir or None,
             max_pages=gs.max_pages,
             tab_settle_seconds=gs.tab_settle_seconds,
+            page_delay_min=gs.page_delay_min,
+            page_delay_max=gs.page_delay_max,
         )
     return GoogleSearchClient()
 
