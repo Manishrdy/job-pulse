@@ -65,6 +65,17 @@ def test_workday_searches_per_city(test_config):
     assert greenhouse == ['site:boards.greenhouse.io "AI Engineer" "United States"']
 
 
+def test_workday_queries_come_last(test_config):
+    # Workday is lowest priority — all its queries must trail every other ATS,
+    # so a capped run spends its budget on the others first.
+    cfg = _cfg(test_config, primary=["greenhouse", "lever"], low=["workday"], roles=["AI Engineer"])
+    q, _ = generate_queries(cfg, LOCS, shuffle=True, rng=random.Random(3))
+    wd = [i for i, x in enumerate(q) if "myworkdayjobs.com" in x]
+    other = [i for i, x in enumerate(q) if "myworkdayjobs.com" not in x]
+    assert wd and other
+    assert min(wd) > max(other)  # every Workday query after every other
+
+
 def test_workday_cities_come_from_usa_region_only(test_config):
     cfg = _cfg(test_config, primary=["workday"], roles=["AI Engineer"])
     q, _ = generate_queries(cfg, LOCS)

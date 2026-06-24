@@ -139,16 +139,27 @@ def generate_queries(
 
     us_cities = locations.get("usa", [])
 
-    queries: list[str] = []
-    for role in config.target_roles:
-        for ats in domains:
-            locs = us_cities if ats.key in CITY_SEARCH_ATS else [BROAD_LOCATION]
+    # Two priority groups: every non-Workday ATS first, Workday last (it's the
+    # lowest priority and its per-city queries are by far the most numerous, so
+    # within a capped run we want the other ATS — Greenhouse, Ashby, Lever,
+    # Rippling, iCIMS, … — covered before Workday gets any budget).
+    other: list[str] = []
+    workday: list[str] = []
+    for ats in domains:
+        if ats.key in CITY_SEARCH_ATS:
+            bucket, locs = workday, us_cities
+        else:
+            bucket, locs = other, [BROAD_LOCATION]
+        for role in config.target_roles:
             for location in locs:
-                queries.append(build_query(role, ats.site, location))
+                bucket.append(build_query(role, ats.site, location))
 
     if shuffle:
-        (rng or random.Random()).shuffle(queries)
-    return queries, skipped
+        r = rng or random.Random()
+        r.shuffle(other)    # fair rotation across the non-Workday ATS
+        r.shuffle(workday)
+    # Workday always trails — only reached once the per-run cap has room left.
+    return other + workday, skipped
 
 
 def slot_counts(config: AppConfig, locations: dict[str, list[str]]) -> dict[str, int]:
