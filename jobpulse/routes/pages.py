@@ -443,8 +443,7 @@ def internet_search_run_action(
     Phase 1 (source='google_search').
     """
     queries, skipped = generate_queries(
-        config, load_locations(),
-        regions=config.google_search.regions, shuffle=True, rng=random.Random(),
+        config, load_locations(), shuffle=True, rng=random.Random()
     )
     if skipped:
         log.warning("Internet search: skipping config ATS with no Phase 2 support: %s", skipped)

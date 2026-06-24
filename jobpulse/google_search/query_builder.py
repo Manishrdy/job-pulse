@@ -1,22 +1,22 @@
-"""Config-driven Google query generation for Phase 2 (Module M2-1, reworked).
+"""Config-driven Google query generation for Phase 2 (Module M2-1).
 
 Builds `site:` search strings from the user's **config** — every
-`config.target_roles` × every searchable `config.ats_platforms` entry ×
-every location in `locations.yaml` — with the past-24h time filter applied by
-the search client (`tbs=qdr:d`). No hardcoded role/ATS lists: the matrix
-follows whatever the config says.
+`config.target_roles` × every searchable `config.ats_platforms` entry — with
+the past-24h time filter applied by the search client (`tbs=qdr:d`).
+
+**Location strategy (US-only):** most ATS list a role broadly, so searching
+per city just multiplies near-identical queries and burns the rate limit —
+they get a single ``"United States"`` query per role. **Workday** is the
+exception: a Workday "company" is a huge enterprise tenant, so a city term
+meaningfully narrows results — only Workday searches per US city
+(``locations.yaml`` ``usa:``).
 
 A generated query looks like::
 
-    site:boards.greenhouse.io "Backend Engineer" "San Francisco"
+    site:boards.greenhouse.io "Backend Engineer" "United States"
+    site:myworkdayjobs.com "Backend Engineer" "San Francisco"   # Workday only
 
-Only ATS that Phase 2 can actually parse (those with a `url_parser` regex)
-have a `site:` domain here; config ATS without one are returned in the
-`skipped_ats` list so the caller can log them rather than wasting queries on
-results we couldn't extract.
-
-`generate_queries` is pure (the optional shuffle takes an injected RNG), so
-it's cheap to test and to preview counts before a run.
+`generate_queries` is pure (the optional shuffle takes an injected RNG).
 """
 
 from __future__ import annotations
@@ -47,12 +47,17 @@ ATS_SITE_DOMAINS: dict[str, str] = {
     "workday": "myworkdayjobs.com",
 }
 
-# Schedule slots (SCOPE §7): which config ATS tiers and which location regions
-# each daily cron run covers. Together the slots cover the full matrix once.
-SLOT_PLAN: dict[str, dict[str, set[str]]] = {
-    "morning": {"tiers": {"primary"}, "regions": {"usa"}},
-    "afternoon": {"tiers": {"primary"}, "regions": {"india", "generic"}},
-    "evening": {"tiers": {"secondary", "low_priority"}, "regions": {"usa", "india", "generic"}},
+# The single broad location used for every non-city ATS.
+BROAD_LOCATION = "United States"
+# Only these ATS search per US city; everyone else uses BROAD_LOCATION.
+CITY_SEARCH_ATS: set[str] = {"workday"}
+
+# Schedule slots (cron): which config ATS tiers each daily run covers. Split by
+# tier so the slots stay disjoint (location is no longer region-based).
+SLOT_PLAN: dict[str, set[str]] = {
+    "morning": {"primary"},
+    "afternoon": {"secondary"},
+    "evening": {"low_priority"},
 }
 
 _REGION_ORDER = ("usa", "india", "generic")
@@ -106,7 +111,6 @@ def generate_queries(
     locations: dict[str, list[str]],
     *,
     slot: str | None = None,
-    regions: list[str] | None = None,
     shuffle: bool = False,
     rng: random.Random | None = None,
 ) -> tuple[list[str], list[str]]:
@@ -114,17 +118,14 @@ def generate_queries(
 
     Returns ``(queries, skipped_ats)`` where ``skipped_ats`` are config ATS in
     the selected tiers that have no `site:` domain (and would yield URLs we
-    can't parse). With ``slot=None`` the full matrix is produced. ``regions``
-    (e.g. ``config.google_search.regions``) further limits which location
-    regions are searched — pass ``["usa", "generic"]`` to hold off India. When
-    ``shuffle`` is set, the order is randomized with ``rng`` so a capped run /
-    repeated clicks sample broadly instead of always re-issuing the first-N.
+    can't parse). Workday searches per US city; every other ATS uses a single
+    ``"United States"`` query per role. When ``shuffle`` is set, the order is
+    randomized with ``rng`` so a capped run / repeated clicks sample broadly
+    instead of always re-issuing the first-N.
     """
     if slot is not None and slot not in SLOT_PLAN:
         raise ValueError(f"Unknown slot {slot!r}; expected one of {sorted(SLOT_PLAN)}")
-    plan = SLOT_PLAN.get(slot) if slot else None
-    tiers = plan["tiers"] if plan else None
-    slot_regions = plan["regions"] if plan else None
+    tiers = SLOT_PLAN.get(slot) if slot else None
 
     domains: list[AtsDomain] = []
     skipped: list[str] = []
@@ -136,21 +137,14 @@ def generate_queries(
         else:
             domains.append(AtsDomain(ats, site))
 
-    # A region is searched only if the slot allows it AND it's in the configured
-    # region scope (when given).
-    region_keys = [
-        r
-        for r in _REGION_ORDER
-        if (slot_regions is None or r in slot_regions)
-        and (regions is None or r in regions)
-    ]
+    us_cities = locations.get("usa", [])
 
     queries: list[str] = []
     for role in config.target_roles:
-        for region in region_keys:
-            for location in locations.get(region, []):
-                for ats in domains:
-                    queries.append(build_query(role, ats.site, location))
+        for ats in domains:
+            locs = us_cities if ats.key in CITY_SEARCH_ATS else [BROAD_LOCATION]
+            for location in locs:
+                queries.append(build_query(role, ats.site, location))
 
     if shuffle:
         (rng or random.Random()).shuffle(queries)

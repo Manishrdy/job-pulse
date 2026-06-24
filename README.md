@@ -204,8 +204,10 @@ Chrome via `nodriver`** (no chromedriver/Selenium) — Google reliably serves
 plain HTTP a `/sorry/` + 429 CAPTCHA, but the real browser is not rate-limited.
 Set `google_search.engine: "http"` to fall back to the legacy plain-httpx path.
 Queries are generated **from your config** — every `target_roles` × searchable
-`ats_platforms` × location in [`locations.yaml`](locations.yaml) — as
-`site:{domain} "{role}" "{location}"`. Results feed the **same `jobs` table**
+`ats_platforms` — as `site:{domain} "{role}" "{location}"`. **US-only:** most
+ATS use a single `"United States"` query per role (per-city just multiplies
+near-identical queries); only **Workday** searches per US city from
+[`locations.yaml`](locations.yaml). Results feed the **same `jobs` table**
 with `source='google_search'`, sharing Phase 1's dedup, location filter,
 blocklist, TTL, and feed. Matched ATS URLs are fetched directly (per-job JSON for
 Greenhouse/Lever, schema.org JSON-LD fallback otherwise).
