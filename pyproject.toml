@@ -26,6 +26,7 @@ dependencies = [
     "httpcloak>=1.6",
     "pandas>=2.0",
     "jobhive-py[scrapers]",
+    "nodriver>=0.50.3",
 ]
 
 [project.optional-dependencies]

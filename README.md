@@ -199,8 +199,11 @@ at once — you'd double-run.
 ## Google Search discovery (Phase 2)
 
 A second discovery channel that finds fresh postings via Google Search with
-`site:` operators (no browser/driver — plain HTTP, past-24h filter). Queries are
-generated **from your config** — every `target_roles` × searchable
+`site:` operators (past-24h filter). By default it drives the **real system
+Chrome via `nodriver`** (no chromedriver/Selenium) — Google reliably serves
+plain HTTP a `/sorry/` + 429 CAPTCHA, but the real browser is not rate-limited.
+Set `google_search.engine: "http"` to fall back to the legacy plain-httpx path.
+Queries are generated **from your config** — every `target_roles` × searchable
 `ats_platforms` × location in [`locations.yaml`](locations.yaml) — as
 `site:{domain} "{role}" "{location}"`. Results feed the **same `jobs` table**
 with `source='google_search'`, sharing Phase 1's dedup, location filter,
@@ -219,8 +222,10 @@ Each run is a **polite capped batch**: it self-stops at
 `google_search.max_queries_per_run` (recorded as a `partial` run, nothing dropped
 silently), and queries are shuffled so repeated clicks / cron slots accumulate
 coverage cheaply against the 24h result cache. Tunables live under
-`google_search:` in `config.yaml` (per-run cap, inter-query delay, failure
-threshold, cache TTL). The dashboard adds a **Source** filter, a **Google** badge
+`google_search:` in `config.yaml` (`engine`, `headless`, `settle_seconds`,
+per-run cap, inter-query delay (default 20–45s), failure threshold, cache TTL).
+The browser engine needs Chrome installed and a display — on a headless server,
+set `headless: true` or use the `http` engine. The dashboard adds a **Source** filter, a **Google** badge
 on those cards, and a **Google finds** analytics metric.
 
 ---

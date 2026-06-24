@@ -55,9 +55,12 @@ scrape:
   recheck_days: 30              # re-probe skipped companies this often so new in-region hiring is caught
 
 google_search:                  # Phase 2 Google-search discovery channel ("Search Internet" button)
+  engine: "browser"             # "browser" = real Chrome via nodriver (beats rate-limiting); "http" = legacy plain-httpx (gets /sorry/+429)
+  headless: false               # run Chrome visibly (headless is more detectable)
+  settle_seconds: 3.0           # wait for results to render before scraping
   max_queries_per_run: 40       # polite batch/run; self-stops at the cap (records a 'partial' run). Raise to cover more per run (higher block risk)
-  min_delay: 8.0                # randomized inter-query delay (seconds)
-  max_delay: 15.0
+  min_delay: 20.0               # randomized inter-query delay (seconds) — generous to avoid rate limits
+  max_delay: 45.0
   max_consecutive_failures: 5   # abort a run after this many failures in a row
   cache_ttl_hours: 24           # skip re-fetching the same (query, url) within this window
 

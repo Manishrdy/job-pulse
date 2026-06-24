@@ -25,6 +25,7 @@ import httpx
 
 from jobpulse.config import AppConfig
 from jobpulse.database import get_connection
+from jobpulse.google_search.browser_client import BrowserSearchClient
 from jobpulse.google_search.dedup import (
     cache_add,
     cache_has,
@@ -115,6 +116,14 @@ def _default_fetch(timeout: float = 15.0) -> Fetch:
     return client.get
 
 
+def _make_search_client(config: AppConfig):
+    """Build the configured search engine: real Chrome (default) or legacy HTTP."""
+    gs = config.google_search
+    if gs.engine == "browser":
+        return BrowserSearchClient(headless=gs.headless, settle_seconds=gs.settle_seconds)
+    return GoogleSearchClient()
+
+
 def run_google_search_pipeline(
     config: AppConfig,
     *,
@@ -136,7 +145,7 @@ def run_google_search_pipeline(
     _set_state(running=True)
     conn = get_connection(config.database.path)
     gs = config.google_search
-    client = search_client or GoogleSearchClient()
+    client = search_client or _make_search_client(config)
     fetch_fn: Fetch = fetch or _default_fetch()
     rl = rate_limiter or RateLimiter(
         min_delay=gs.min_delay,
@@ -175,6 +184,15 @@ def run_google_search_pipeline(
                     break
                 continue
             except (SearchError, httpx.HTTPError) as exc:
+                errors.append(f"{query}: {exc}")
+                try:
+                    rl.record_failure()
+                except RunAbortedError:
+                    status = "partial"
+                    break
+                continue
+            except Exception as exc:  # unexpected — e.g. Chrome/nodriver launch failure
+                log.warning("Unexpected search error on %r: %s", query, exc)
                 errors.append(f"{query}: {exc}")
                 try:
                     rl.record_failure()
