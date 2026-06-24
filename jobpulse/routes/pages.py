@@ -42,6 +42,8 @@ PAGE_SIZE = 20
 # Time-posted presets surfaced in the filter dropdown (label, days).
 POSTED_PRESETS = [("Any time", ""), ("Last 24h", "1"), ("Last 2 days", "2"), ("Last 3 days", "3")]
 SORT_OPTIONS = [("Posted", "posted"), ("Relevance", "relevance"), ("Salary", "salary")]
+# Discovery-channel filter (FR-Phase2): jobs.source values.
+SOURCE_OPTIONS = [("All sources", ""), ("jobhive", "jobhive"), ("Google", "google_search")]
 
 # Applied-job pipeline statuses (value, label) for the inline dropdown (FR-04.3).
 STATUS_OPTIONS = [
@@ -66,6 +68,7 @@ def _parse_filters(request: Request) -> tuple[dict, dict]:
         "employment_type": q.get("employment_type", ""),
         "posted_within_days": q.get("posted_within_days", ""),
         "salary_min": q.get("salary_min", ""),
+        "source": q.get("source", ""),
         "sort": q.get("sort", ""),
     }
     try:
@@ -82,6 +85,7 @@ def _parse_filters(request: Request) -> tuple[dict, dict]:
         "employment_type": form["employment_type"] or None,
         "posted_within_days": int(form["posted_within_days"]) if form["posted_within_days"] else None,
         "salary_min": float(form["salary_min"]) if form["salary_min"] else None,
+        "source": form["source"] or None,
         "sort": form["sort"] or None,
         "limit": PAGE_SIZE,
         "offset": offset,
@@ -124,6 +128,7 @@ def _feed_context(request: Request, conn: sqlite3.Connection, config: AppConfig)
         "ats_options": config.ats_platforms.all_platforms,
         "posted_presets": POSTED_PRESETS,
         "sort_options": SORT_OPTIONS,
+        "source_options": SOURCE_OPTIONS,
         # When a scrape is running, the feed auto-refreshes so new jobs appear live.
         "scrape_running": pipeline.is_running(),
     }

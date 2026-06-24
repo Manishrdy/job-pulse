@@ -66,9 +66,11 @@ def test_api_summary_structure(client: TestClient, test_db: sqlite3.Connection):
     seed_job(test_db, title="Software Engineer")
     body = client.get("/api/analytics/summary").json()
     assert set(body["cards"]) == {
-        "total_active_jobs", "total_applied", "applications_this_week", "response_rate"
+        "total_active_jobs", "total_applied", "applications_this_week", "response_rate",
+        "google_only_finds",
     }
-    for key in ("role_breakdown", "applications_per_day", "ats_breakdown", "status_funnel", "scrape_trends"):
+    for key in ("role_breakdown", "applications_per_day", "ats_breakdown", "status_funnel",
+                "scrape_trends", "source_breakdown"):
         assert key in body
     assert "jobs" in body["ats_breakdown"] and "applied" in body["ats_breakdown"]
 

@@ -12,6 +12,7 @@
   <div class="job-meta">
     <span class="company">{{ job.company }}</span>
     <span class="ats">{{ job.ats_type }}</span>
+    {% if job.source == 'google_search' %}<span class="badge badge-google" title="Discovered via Google Search">Google</span>{% endif %}
     {% if job.location %}<span class="location">{{ job.location }}</span>{% endif %}
     {% if job.is_remote == 1 %}<span class="badge badge-remote">Remote</span>{% endif %}
     {% if job.employment_type %}<span class="emp">{{ job.employment_type.replace('_',' ').title() }}</span>{% endif %}

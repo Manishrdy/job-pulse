@@ -93,6 +93,16 @@ def ats_breakdown(conn: sqlite3.Connection) -> dict:
     }
 
 
+def source_breakdown(conn: sqlite3.Connection) -> list[dict]:
+    """Active jobs per discovery channel (jobhive vs google_search)."""
+    rows = conn.execute(
+        "SELECT source, COUNT(*) AS count FROM jobs "
+        "WHERE status = 'active' AND is_blocked = 0 "
+        "GROUP BY source ORDER BY count DESC"
+    ).fetchall()
+    return [{"source": r["source"], "count": r["count"]} for r in rows]
+
+
 def status_funnel(conn: sqlite3.Connection) -> list[dict]:
     """Application counts by status (FR-07.4)."""
     rows = conn.execute(
@@ -158,17 +168,27 @@ def summary(
     ).fetchone()["c"]
     response_rate = round(responded / total_applied, 4) if total_applied else 0.0
 
+    # "Google-only finds": active jobs the Google channel surfaced. Because
+    # both channels dedup on global_id, a google_search row is one jobhive
+    # never inserted — i.e. unique value the Google channel added.
+    google_only_finds = conn.execute(
+        "SELECT COUNT(*) AS c FROM jobs "
+        "WHERE status = 'active' AND is_blocked = 0 AND source = 'google_search'"
+    ).fetchone()["c"]
+
     return {
         "cards": {
             "total_active_jobs": total_active,
             "total_applied": total_applied,
             "applications_this_week": applications_this_week,
             "response_rate": response_rate,
+            "google_only_finds": google_only_finds,
         },
         "days": days,
         "role_breakdown": role_breakdown(conn, target_roles),
         "applications_per_day": applications_per_day(conn, days=days, now=now),
         "ats_breakdown": ats_breakdown(conn),
+        "source_breakdown": source_breakdown(conn),
         "status_funnel": status_funnel(conn),
         "scrape_trends": scrape_trends(conn, days=days, now=now),
     }

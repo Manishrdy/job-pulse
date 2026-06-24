@@ -58,6 +58,7 @@ def list_jobs(
     employment_type: str | None = None,
     posted_within_days: int | None = None,
     salary_min: float | None = None,
+    source: str | None = None,
     sort: str | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -93,6 +94,9 @@ def list_jobs(
     if ats:
         where.append("j.ats_type = ?")
         params.append(ats)
+    if source:
+        where.append("j.source = ?")
+        params.append(source)
     if location:
         where.append("j.location LIKE ?")
         params.append(f"%{location}%")

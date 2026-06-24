@@ -18,6 +18,7 @@
   <div class="card"><div class="card-value">{{ data.cards.total_applied }}</div><div class="card-label">Total applied</div></div>
   <div class="card"><div class="card-value">{{ data.cards.applications_this_week }}</div><div class="card-label">Applied this week</div></div>
   <div class="card"><div class="card-value">{{ '%.0f'|format(data.cards.response_rate * 100) }}%</div><div class="card-label">Response rate</div></div>
+  <div class="card"><div class="card-value">{{ data.cards.google_only_finds }}</div><div class="card-label">Google finds</div></div>
 </div>
 
 {% if data.cards.total_applied == 0 and data.cards.total_active_jobs == 0 %}
@@ -47,6 +48,28 @@
     <canvas id="chart-scrape"></canvas>
   </section>
 </div>
+
+{# Jobs by discovery channel (Phase 2). #}
+<section class="chart-box">
+  <h2>Jobs by source</h2>
+  {% if data.source_breakdown %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Source</th><th>Active jobs</th></tr></thead>
+      <tbody>
+        {% for s in data.source_breakdown %}
+        <tr>
+          <td>{{ 'Google Search' if s.source == 'google_search' else 'JobHive' if s.source == 'jobhive' else s.source }}</td>
+          <td>{{ s.count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">No jobs yet.</p>
+  {% endif %}
+</section>
 
 {# Role-wise breakdown table (FR-07.1) #}
 <section class="chart-box">

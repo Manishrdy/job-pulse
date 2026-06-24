@@ -30,6 +30,15 @@
   </div>
 
   <div class="filter-group">
+    <label for="f-source">Source</label>
+    <select id="f-source" name="source">
+      {% for label, val in source_options %}
+      <option value="{{ val }}" {% if filters.source == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
     <label for="f-location">Location</label>
     <input type="text" id="f-location" name="location" placeholder="e.g. San Francisco"
            value="{{ filters.location }}">
