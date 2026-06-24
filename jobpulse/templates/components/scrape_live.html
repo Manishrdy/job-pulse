@@ -15,30 +15,20 @@
     <button class="btn" hx-post="/cleanup/run" hx-target="#scrape-live" hx-swap="innerHTML">Run cleanup now</button>
   {% endif %}
   {% if ss.running %}
-    <span class="status status-running">running: google-search…</span>
+    <span class="status status-running">running: internet search…</span>
   {% endif %}
+  {# Phase 2 — one-click Google search of the whole configured matrix (no input):
+     all roles × ATS × locations, past 24h. Separate channel, may overlap a scrape. #}
+  <button class="btn" hx-post="/internet-search/run" hx-target="#scrape-live" hx-swap="innerHTML"
+          title="Searches Google for all configured roles × ATS platforms × locations (past 24h)"
+          {% if ss.running %}disabled{% endif %}>
+    {% if ss.running %}Searching…{% else %}Search Internet{% endif %}
+  </button>
   {# Self-sustaining poller: refreshes this region until both channels are idle. #}
   {% if st.running or ss.running %}
     <div hx-get="/partials/scrape-logs" hx-target="#scrape-live" hx-swap="innerHTML"
          hx-trigger="every 2s" style="display:none"></div>
   {% endif %}
-</div>
-
-{# Manual Google operator-search (Phase 2). Results land in the same feed,
-   tagged source='google_search'. #}
-<div class="google-search-box">
-  <form class="google-search-form" hx-post="/google-search/run"
-        hx-target="#scrape-live" hx-swap="innerHTML">
-    <input type="text" name="query" class="google-search-input"
-           placeholder='site:boards.greenhouse.io ("AI Engineer" OR "LLM Engineer") "San Francisco"'
-           autocomplete="off" {% if ss.running %}disabled{% endif %}>
-    <button type="submit" class="btn btn-apply" {% if ss.running %}disabled{% endif %}>
-      {% if ss.running %}Searching…{% else %}Search Google{% endif %}
-    </button>
-  </form>
-  <div class="google-search-hint">
-    Google operator search (past 24h). Use <code>site:</code>, quoted phrases, and <code>OR</code>.
-  </div>
 </div>
 
 {% if st.running and st.current == 'scrape' %}

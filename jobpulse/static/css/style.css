@@ -303,16 +303,6 @@ h1, h2, h3 { letter-spacing: -0.015em; color: var(--text); }
 .scrape-controls .btn { margin-left: auto; }
 .scrape-controls .btn + .btn { margin-left: 0; }
 
-/* Manual Google operator-search box (Phase 2). */
-.google-search-box { margin-bottom: 18px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
-.google-search-form { display: flex; gap: 10px; align-items: center; }
-.google-search-input { flex: 1; min-width: 0; padding: 9px 12px; font-size: 13px; font-family: var(--mono, ui-monospace, monospace); color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius); }
-.google-search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
-.google-search-input:disabled { opacity: 0.6; }
-.google-search-form .btn { white-space: nowrap; }
-.google-search-hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
-.google-search-hint code { font-size: 11px; padding: 1px 5px; background: var(--accent-soft); border-radius: 4px; color: var(--accent-hover); }
-
 .live-progress { margin: 0 0 18px; padding: 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
 .progress-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
 .pcard { background: linear-gradient(180deg, var(--surface), var(--surface-2)); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }

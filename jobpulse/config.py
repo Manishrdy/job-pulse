@@ -126,12 +126,14 @@ class GoogleSearch(BaseModel):
     """Phase 2 Google-search discovery channel knobs."""
 
     # Hard cap on queries per run (rate_limiter enforces; overflow records a
-    # 'partial' run rather than dropping silently). The evening slot can exceed
-    # this — raise it, add schedule slots, or trim secondary-ATS cities.
-    max_queries_per_run: int = Field(default=700, ge=1)
+    # 'partial' run rather than dropping silently). Kept small so the "Search
+    # Internet" button is a polite batch — the 24h cache + shuffled query order
+    # let repeated clicks / cron slots accumulate coverage. Raise to cover more
+    # per run at higher block risk.
+    max_queries_per_run: int = Field(default=40, ge=1)
     # Randomized delay (seconds) between Google queries.
-    min_delay: float = Field(default=5.0, ge=0)
-    max_delay: float = Field(default=10.0, ge=0)
+    min_delay: float = Field(default=8.0, ge=0)
+    max_delay: float = Field(default=15.0, ge=0)
     # Abort a run after this many consecutive search failures.
     max_consecutive_failures: int = Field(default=5, ge=1)
     # search_results_cache TTL — skip re-fetching the same (query, url) within it.

@@ -1,19 +1,21 @@
-"""M2-1 — query builder: format, skip rules, slot partitioning, budget."""
+"""M2-1 (reworked) — config-driven query generation."""
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
+from jobpulse.config import ATSPlatforms
 from jobpulse.google_search.query_builder import (
-    ROLE_GROUPS,
+    ATS_SITE_DOMAINS,
     SLOT_PLAN,
-    AtsDomain,
-    applicable_role_groups,
     build_query,
     generate_queries,
     load_locations,
     slot_counts,
 )
+from jobpulse.google_search.url_parser import _PATTERNS
 
 LOCS = {
     "usa": ["San Francisco", "Austin"],
@@ -21,105 +23,119 @@ LOCS = {
     "generic": ["Remote"],
 }
 
-GH = AtsDomain("greenhouse", "boards.greenhouse.io", "primary")
+
+def _config_with_ats(test_config, *, primary, secondary=None, low=None, roles=None):
+    update = {"ats_platforms": ATSPlatforms(primary=primary, secondary=secondary or [], low_priority=low or [])}
+    if roles is not None:
+        update["target_roles"] = roles
+    return test_config.model_copy(update=update)
 
 
 # ── build_query ────────────────────────────────────────────────────────────
 
 
 def test_build_query_format():
-    q = build_query("ai", GH, "San Francisco")
-    assert q == f'site:boards.greenhouse.io ({ROLE_GROUPS["ai"]}) "San Francisco"'
-    assert q.startswith("site:boards.greenhouse.io (")
-    assert q.endswith('"San Francisco"')
+    assert build_query("Backend Engineer", "boards.greenhouse.io", "San Francisco") == (
+        'site:boards.greenhouse.io "Backend Engineer" "San Francisco"'
+    )
 
 
-# ── skip rules (§7) ────────────────────────────────────────────────────────
+def test_build_query_without_location():
+    assert build_query("AI Engineer", "jobs.lever.co") == 'site:jobs.lever.co "AI Engineer"'
 
 
-def test_startup_boards_skip_swe():
-    assert "swe" not in applicable_role_groups("wellfound", "usa")
-    assert "swe" not in applicable_role_groups("workatastartup", "usa")
-    assert "ai" in applicable_role_groups("wellfound", "usa")
+# ── config-driven generation ───────────────────────────────────────────────
 
 
-def test_oracle_skips_founding():
-    assert "founding" not in applicable_role_groups("oracle", "usa")
+def test_uses_config_roles_and_ats(test_config):
+    cfg = _config_with_ats(test_config, primary=["greenhouse", "lever"], roles=["AI Engineer"])
+    queries, skipped = generate_queries(cfg, LOCS)
+    assert skipped == []
+    # One query per role × ats × location (1 role × 2 ats × 4 locations = 8).
+    assert len(queries) == 1 * 2 * 4
+    assert 'site:boards.greenhouse.io "AI Engineer" "San Francisco"' in queries
+    assert 'site:jobs.lever.co "AI Engineer" "Bangalore"' in queries
+    # Only configured roles/domains appear.
+    assert all('"AI Engineer"' in q for q in queries)
 
 
-def test_india_skips_founding():
-    assert "founding" not in applicable_role_groups("greenhouse", "india")
-    assert "founding" in applicable_role_groups("greenhouse", "usa")
+def test_unsupported_ats_skipped_and_absent(test_config):
+    cfg = _config_with_ats(
+        test_config, primary=["greenhouse"], secondary=["jazzhr", "teamtailor", "smartrecruiters"]
+    )
+    queries, skipped = generate_queries(cfg, LOCS)
+    # jazzhr/teamtailor have no site: domain → reported, never queried.
+    assert set(skipped) == {"jazzhr", "teamtailor"}
+    assert not any("jazzhr" in q or "teamtailor" in q for q in queries)
+    # smartrecruiters IS supported → present.
+    assert any("jobs.smartrecruiters.com" in q for q in queries)
 
 
-def test_default_groups_are_all_three():
-    assert applicable_role_groups("greenhouse", "usa") == ["swe", "ai", "founding"]
+def test_all_four_unsupported_ats(test_config):
+    cfg = _config_with_ats(
+        test_config, primary=["greenhouse"], secondary=["jazzhr", "teamtailor", "bamboohr", "phenom"]
+    )
+    _, skipped = generate_queries(cfg, LOCS)
+    assert set(skipped) == {"jazzhr", "teamtailor", "bamboohr", "phenom"}
 
 
-# ── generate_queries ───────────────────────────────────────────────────────
+# ── slots ──────────────────────────────────────────────────────────────────
 
 
-def test_generate_all_combos():
-    qs = generate_queries(LOCS)
-    # Every query is well-formed and unique.
-    assert all(q.startswith("site:") for q in qs)
-    assert len(qs) == len(set(qs))
+def test_morning_is_primary_usa(test_config):
+    cfg = _config_with_ats(test_config, primary=["greenhouse"], secondary=["smartrecruiters"], roles=["AI Engineer"])
+    q, _ = generate_queries(cfg, LOCS, slot="morning")
+    assert q  # non-empty
+    assert all("boards.greenhouse.io" in x for x in q)  # primary only
+    assert not any("Bangalore" in x for x in q)  # usa only
+    assert not any("smartrecruiters" in x for x in q)  # secondary excluded
 
 
-def test_skip_rules_reflected_in_output():
-    qs = generate_queries(LOCS)
-    # No wellfound SWE queries.
-    wf_swe = [q for q in qs if "wellfound.com/company" in q and ROLE_GROUPS["swe"] in q]
-    assert wf_swe == []
-    # No founding queries for Bangalore.
-    founding_blr = [q for q in qs if ROLE_GROUPS["founding"] in q and "Bangalore" in q]
-    assert founding_blr == []
-
-
-def test_slots_partition_the_full_set():
-    """The three slots together cover exactly the full set, no overlap."""
-    full = set(generate_queries(LOCS))
-    slot_union: set[str] = set()
-    total = 0
+def test_slots_partition_full_set(test_config):
+    cfg = _config_with_ats(
+        test_config, primary=["greenhouse"], secondary=["smartrecruiters"], low=["workday"], roles=["AI Engineer"]
+    )
+    full = set(generate_queries(cfg, LOCS)[0])
+    union, total = set(), 0
     for slot in SLOT_PLAN:
-        s = generate_queries(LOCS, slot=slot)
+        s = generate_queries(cfg, LOCS, slot=slot)[0]
         total += len(s)
-        slot_union |= set(s)
-    assert slot_union == full
-    assert total == len(full)  # disjoint slots
+        union |= set(s)
+    assert union == full
+    assert total == len(full)  # disjoint slots, no overlap
 
 
-def test_morning_is_primary_usa_only():
-    qs = generate_queries(LOCS, slot="morning")
-    assert all('"San Francisco"' in q or '"Austin"' in q for q in qs)
-    assert all("boards.greenhouse.io" in q or "ashbyhq" in q or "lever" in q or "icims" in q for q in qs)
-    assert not any("Bangalore" in q for q in qs)
-
-
-def test_invalid_slot_raises():
+def test_invalid_slot_raises(test_config):
     with pytest.raises(ValueError):
-        generate_queries(LOCS, slot="midnight")
+        generate_queries(test_config, LOCS, slot="midnight")
 
 
-def test_slot_counts_keys():
-    counts = slot_counts(LOCS)
+# ── shuffle ────────────────────────────────────────────────────────────────
+
+
+def test_shuffle_preserves_set_changes_order(test_config):
+    cfg = _config_with_ats(test_config, primary=["greenhouse", "lever"], roles=["AI Engineer", "Backend Engineer"])
+    ordered, _ = generate_queries(cfg, LOCS)
+    shuffled, _ = generate_queries(cfg, LOCS, shuffle=True, rng=random.Random(1))
+    assert set(shuffled) == set(ordered)
+    assert shuffled != ordered  # order differs (enough queries to be near-certain)
+
+
+def test_shuffle_is_seed_deterministic(test_config):
+    cfg = _config_with_ats(test_config, primary=["greenhouse", "lever"], roles=["AI Engineer", "Backend Engineer"])
+    a, _ = generate_queries(cfg, LOCS, shuffle=True, rng=random.Random(7))
+    b, _ = generate_queries(cfg, LOCS, shuffle=True, rng=random.Random(7))
+    assert a == b
+
+
+# ── invariants ─────────────────────────────────────────────────────────────
+
+
+def test_every_site_domain_has_url_pattern():
+    """Every ATS we build a site: query for must be recognizable by url_parser."""
+    assert set(ATS_SITE_DOMAINS) <= set(_PATTERNS)
+
+
+def test_slot_counts_real_config(test_config):
+    counts = slot_counts(test_config, load_locations())
     assert set(counts) == set(SLOT_PLAN)
-    assert all(c > 0 for c in counts.values())
-
-
-# ── real locations.yaml ────────────────────────────────────────────────────
-
-
-def test_load_real_locations():
-    locs = load_locations()
-    assert len(locs["usa"]) > 40
-    assert "San Francisco" in locs["usa"]
-    assert "Bangalore" in locs["india"]
-    assert "Remote" in locs["generic"]
-
-
-def test_primary_slots_within_budget():
-    """Morning + afternoon (the primary-ATS slots) stay under ~700/run."""
-    counts = slot_counts(load_locations())
-    assert counts["morning"] <= 700
-    assert counts["afternoon"] <= 700

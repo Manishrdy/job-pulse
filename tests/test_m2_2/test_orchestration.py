@@ -20,18 +20,18 @@ _TS = "%Y-%m-%dT%H:%M:%SZ"
 
 def test_google_search_defaults():
     gs = GoogleSearch()
-    assert gs.max_queries_per_run == 700
+    assert gs.max_queries_per_run == 40  # polite batch default
     assert gs.cache_ttl_hours == 24
     assert gs.min_delay <= gs.max_delay
 
 
 def test_google_search_rejects_inverted_delays():
     with pytest.raises(ValueError):
-        GoogleSearch(min_delay=10.0, max_delay=5.0)
+        GoogleSearch(min_delay=20.0, max_delay=5.0)
 
 
 def test_config_has_google_search_section(test_config):
-    assert test_config.google_search.max_queries_per_run == 700
+    assert test_config.google_search.max_queries_per_run == 40
 
 
 # ── cleanup prunes the search cache ────────────────────────────────────────
@@ -95,9 +95,10 @@ def test_pipeline_uses_config_query_cap(test_db: sqlite3.Connection, test_config
 # ── cron slot wiring ───────────────────────────────────────────────────────
 
 
-def test_all_slots_generate_queries():
+def test_all_slots_generate_queries(test_config):
     from jobpulse.google_search.query_builder import load_locations
 
     locs = load_locations()
     for slot in SLOT_PLAN:
-        assert len(generate_queries(locs, slot=slot)) > 0
+        queries, _skipped = generate_queries(test_config, locs, slot=slot)
+        assert len(queries) > 0

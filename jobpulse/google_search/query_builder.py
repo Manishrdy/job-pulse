@@ -1,77 +1,70 @@
-"""Google query generation for the Phase 2 channel (Module M2-1).
+"""Config-driven Google query generation for Phase 2 (Module M2-1, reworked).
 
-Turns role groups × ATS domains × locations into ``site:`` search strings,
-applies the §7 optimization rules (skip combos unlikely to pay off), and
-partitions the set across three daily schedule slots so each run stays
-modest.
+Builds `site:` search strings from the user's **config** — every
+`config.target_roles` × every searchable `config.ats_platforms` entry ×
+every location in `locations.yaml` — with the past-24h time filter applied by
+the search client (`tbs=qdr:d`). No hardcoded role/ATS lists: the matrix
+follows whatever the config says.
 
 A generated query looks like::
 
-    site:boards.greenhouse.io ("AI Engineer" OR "LLM Engineer" OR ...) "San Francisco"
+    site:boards.greenhouse.io "Backend Engineer" "San Francisco"
 
-Locations come from ``locations.yaml`` (repo root). The builder is pure —
-no DB, no network — so it's cheap to test and to preview counts before a run.
+Only ATS that Phase 2 can actually parse (those with a `url_parser` regex)
+have a `site:` domain here; config ATS without one are returned in the
+`skipped_ats` list so the caller can log them rather than wasting queries on
+results we couldn't extract.
+
+`generate_queries` is pure (the optional shuffle takes an injected RNG), so
+it's cheap to test and to preview counts before a run.
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
+from jobpulse.config import AppConfig
+
 # Default locations file (repo root, next to config.yaml).
 DEFAULT_LOCATIONS_PATH = Path(__file__).resolve().parent.parent.parent / "locations.yaml"
 
-# Role groups (SCOPE §4). Each value is an OR-joined, pre-quoted phrase list
-# that drops straight into the parenthesized clause of a query.
-ROLE_GROUPS: dict[str, str] = {
-    "swe": (
-        '"Software Engineer" OR "Software Development Engineer" OR "SDE" '
-        'OR "Backend Engineer" OR "Senior Software Engineer"'
-    ),
-    "ai": (
-        '"AI Engineer" OR "Generative AI Engineer" OR "GenAI Engineer" '
-        'OR "LLM Engineer" OR "Agentic AI Engineer" OR "Agent Engineer" '
-        'OR "AI Applications Engineer"'
-    ),
-    "founding": (
-        '"Forward Deployed Engineer" OR "Founding Engineer" '
-        'OR "Founding Software Engineer" OR "Founding AI Engineer"'
-    ),
+# jobhive ATS type → Google `site:` domain. Only ATS with a matching
+# `url_parser` regex (so a discovered URL can be recognized + extracted) are
+# listed; config ATS absent here are reported as skipped.
+ATS_SITE_DOMAINS: dict[str, str] = {
+    "greenhouse": "boards.greenhouse.io",
+    "lever": "jobs.lever.co",
+    "ashby": "jobs.ashbyhq.com",
+    "icims": "careers.icims.com",
+    "smartrecruiters": "jobs.smartrecruiters.com",
+    "workable": "apply.workable.com",
+    "rippling": "ats.rippling.com/careers",
+    "gem": "jobs.gem.com",
+    "workday": "myworkdayjobs.com",
 }
 
-
-@dataclass(frozen=True)
-class AtsDomain:
-    key: str
-    site: str  # the host(/path) after the `site:` operator
-    tier: str  # "primary" | "secondary" | "low"
-
-
-# ATS domains and their site: operators (SCOPE §5), in priority order.
-ATS_DOMAINS: tuple[AtsDomain, ...] = (
-    AtsDomain("greenhouse", "boards.greenhouse.io", "primary"),
-    AtsDomain("ashby", "jobs.ashbyhq.com", "primary"),
-    AtsDomain("lever", "jobs.lever.co", "primary"),
-    AtsDomain("icims", "careers.icims.com", "primary"),
-    AtsDomain("smartrecruiters", "jobs.smartrecruiters.com", "secondary"),
-    AtsDomain("workable", "apply.workable.com", "secondary"),
-    AtsDomain("wellfound", "wellfound.com/company", "secondary"),
-    AtsDomain("workatastartup", "workatastartup.com", "secondary"),
-    AtsDomain("oracle", "careers.oracle.com", "secondary"),
-    AtsDomain("rippling", "ats.rippling.com/careers", "secondary"),
-    AtsDomain("gem", "jobs.gem.com", "secondary"),
-    AtsDomain("workday", "myworkdayjobs.com", "low"),
-)
-
-# Schedule slots (SCOPE §7): which ATS tiers and which location regions each
-# daily run covers. Together the three slots cover every combination once.
+# Schedule slots (SCOPE §7): which config ATS tiers and which location regions
+# each daily cron run covers. Together the slots cover the full matrix once.
 SLOT_PLAN: dict[str, dict[str, set[str]]] = {
     "morning": {"tiers": {"primary"}, "regions": {"usa"}},
     "afternoon": {"tiers": {"primary"}, "regions": {"india", "generic"}},
-    "evening": {"tiers": {"secondary", "low"}, "regions": {"usa", "india", "generic"}},
+    "evening": {"tiers": {"secondary", "low_priority"}, "regions": {"usa", "india", "generic"}},
 }
+
+_REGION_ORDER = ("usa", "india", "generic")
+_TIER_ORDER = ("primary", "secondary", "low_priority")
+
+
+@dataclass
+class AtsDomain:
+    """An ATS resolved to its Google `site:` domain (for query building)."""
+
+    key: str
+    site: str
 
 
 def load_locations(path: str | Path | None = None) -> dict[str, list[str]]:
@@ -82,40 +75,47 @@ def load_locations(path: str | Path | None = None) -> dict[str, list[str]]:
     p = Path(path) if path is not None else DEFAULT_LOCATIONS_PATH
     with open(p) as f:
         raw = yaml.safe_load(f) or {}
-    return {region: list(raw.get(region) or []) for region in ("usa", "india", "generic")}
+    return {region: list(raw.get(region) or []) for region in _REGION_ORDER}
 
 
-def build_query(role_group: str, ats: AtsDomain, location: str) -> str:
-    """Compose one Google search string."""
-    return f'site:{ats.site} ({ROLE_GROUPS[role_group]}) "{location}"'
+def build_query(role: str, domain: str, location: str | None = None) -> str:
+    """Compose one Google search string: ``site:{domain} "{role}" "{location}"``."""
+    q = f'site:{domain} "{role}"'
+    if location:
+        q += f' "{location}"'
+    return q
 
 
-def applicable_role_groups(ats_key: str, region: str) -> list[str]:
-    """Role groups worth running for an ATS/region (SCOPE §7 skip rules).
-
-    - Startup boards (Wellfound, WorkAtAStartup) skip generic SWE.
-    - Oracle skips Founding (it doesn't hire 'founding engineers').
-    - India locations skip Founding (those roles are predominantly US-based).
-    """
-    groups = list(ROLE_GROUPS.keys())  # swe, ai, founding
-    if ats_key in {"wellfound", "workatastartup"} and "swe" in groups:
-        groups.remove("swe")
-    if ats_key == "oracle" and "founding" in groups:
-        groups.remove("founding")
-    if region == "india" and "founding" in groups:
-        groups.remove("founding")
-    return groups
+def _platforms_for_tiers(config: AppConfig, tiers: set[str] | None) -> list[str]:
+    """Config ATS platforms in the given tiers (all tiers when ``tiers`` is None)."""
+    ats = config.ats_platforms
+    by_tier = {
+        "primary": ats.primary,
+        "secondary": ats.secondary,
+        "low_priority": ats.low_priority,
+    }
+    out: list[str] = []
+    for tier in _TIER_ORDER:
+        if tiers is None or tier in tiers:
+            out.extend(by_tier[tier])
+    return out
 
 
 def generate_queries(
+    config: AppConfig,
     locations: dict[str, list[str]],
     *,
     slot: str | None = None,
-    ats_domains: tuple[AtsDomain, ...] = ATS_DOMAINS,
-) -> list[str]:
-    """Generate query strings, optionally restricted to one schedule slot.
+    shuffle: bool = False,
+    rng: random.Random | None = None,
+) -> tuple[list[str], list[str]]:
+    """Generate queries from config, optionally restricted to one slot.
 
-    With ``slot=None`` every combination is produced (all slots' union).
+    Returns ``(queries, skipped_ats)`` where ``skipped_ats`` are config ATS in
+    the selected tiers that have no `site:` domain (and would yield URLs we
+    can't parse). With ``slot=None`` the full matrix is produced. When
+    ``shuffle`` is set, the order is randomized with ``rng`` so a capped run /
+    repeated clicks sample broadly instead of always re-issuing the first-N.
     """
     if slot is not None and slot not in SLOT_PLAN:
         raise ValueError(f"Unknown slot {slot!r}; expected one of {sorted(SLOT_PLAN)}")
@@ -123,20 +123,30 @@ def generate_queries(
     tiers = plan["tiers"] if plan else None
     regions = plan["regions"] if plan else None
 
+    domains: list[AtsDomain] = []
+    skipped: list[str] = []
+    for ats in _platforms_for_tiers(config, tiers):
+        site = ATS_SITE_DOMAINS.get(ats)
+        if site is None:
+            if ats not in skipped:
+                skipped.append(ats)
+        else:
+            domains.append(AtsDomain(ats, site))
+
+    region_keys = [r for r in _REGION_ORDER if regions is None or r in regions]
+
     queries: list[str] = []
-    for ats in ats_domains:
-        if tiers is not None and ats.tier not in tiers:
-            continue
-        for region in ("usa", "india", "generic"):
-            if regions is not None and region not in regions:
-                continue
-            groups = applicable_role_groups(ats.key, region)
+    for role in config.target_roles:
+        for region in region_keys:
             for location in locations.get(region, []):
-                for group in groups:
-                    queries.append(build_query(group, ats, location))
-    return queries
+                for ats in domains:
+                    queries.append(build_query(role, ats.site, location))
+
+    if shuffle:
+        (rng or random.Random()).shuffle(queries)
+    return queries, skipped
 
 
-def slot_counts(locations: dict[str, list[str]]) -> dict[str, int]:
+def slot_counts(config: AppConfig, locations: dict[str, list[str]]) -> dict[str, int]:
     """Query count per slot — handy for budgeting before a run."""
-    return {slot: len(generate_queries(locations, slot=slot)) for slot in SLOT_PLAN}
+    return {slot: len(generate_queries(config, locations, slot=slot)[0]) for slot in SLOT_PLAN}

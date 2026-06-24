@@ -55,8 +55,9 @@ def main() -> int:
         return 2
 
     slot = None if arg in _SLOT_ARG_ALIASES else arg
-    locations = load_locations()
-    queries = generate_queries(locations, slot=slot)
+    queries, skipped = generate_queries(config, load_locations(), slot=slot)
+    if skipped:
+        log.warning("Skipping config ATS with no Phase 2 support: %s", skipped)
     log.info("Generated %d queries for slot=%s", len(queries), arg)
 
     result = run_google_search_pipeline(

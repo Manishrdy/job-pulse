@@ -11,7 +11,9 @@ reloads the feed).
 from __future__ import annotations
 
 import json
+import logging
 import math
+import random
 import sqlite3
 from pathlib import Path
 from urllib.parse import urlencode
@@ -24,6 +26,7 @@ from jobpulse import pipeline
 from jobpulse.config import AppConfig
 from jobpulse.deps import get_config, get_db
 from jobpulse.google_search import pipeline as google_pipeline
+from jobpulse.google_search.query_builder import generate_queries, load_locations
 from jobpulse.services import (
     analytics_service,
     applied_service,
@@ -33,6 +36,7 @@ from jobpulse.services import (
 )
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -423,22 +427,28 @@ def cleanup_run_action(
     )
 
 
-@router.post("/google-search/run", response_class=HTMLResponse)
-def google_search_run_action(
+@router.post("/internet-search/run", response_class=HTMLResponse)
+def internet_search_run_action(
     request: Request,
-    query: str = Form(...),
     conn: sqlite3.Connection = Depends(get_db),
     config: AppConfig = Depends(get_config),
 ):
-    """Manual Google operator-search: run one query in the background (M1-8).
+    """Search the internet (Google) for the full configured matrix — no input.
 
-    Returns the live region immediately; the run logs to ``search_runs`` and
-    its results land in the same feed as Phase 1 (source='google_search').
+    Builds queries from ``config.target_roles`` × ``config.ats_platforms`` ×
+    locations (past 24h via ``tbs=qdr:d``), shuffles them so a capped run
+    samples broadly, and fires a polite background batch that self-stops at
+    ``google_search.max_queries_per_run``. Results land in the same feed as
+    Phase 1 (source='google_search').
     """
-    query = query.strip()
-    if query:
+    queries, skipped = generate_queries(
+        config, load_locations(), shuffle=True, rng=random.Random()
+    )
+    if skipped:
+        log.warning("Internet search: skipping config ATS with no Phase 2 support: %s", skipped)
+    if queries:
         google_pipeline.run_google_search_in_background(
-            config, queries=[query], schedule_slot="manual"
+            config, queries=queries, schedule_slot="manual"
         )
     return templates.TemplateResponse(
         request, "components/scrape_live.html", _scrape_logs_context(request, conn, config)

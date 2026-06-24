@@ -1,4 +1,4 @@
-"""M1-8 — manual Google search UI route on /scrape-logs."""
+"""M1-8 (reworked) — the no-input "Search Internet" button + route."""
 
 from __future__ import annotations
 
@@ -22,29 +22,37 @@ def captured_runs(monkeypatch):
     return calls
 
 
-def test_scrape_logs_page_shows_search_form(client):
-    resp = client.get("/scrape-logs")
+def test_scrape_logs_page_shows_search_button(client):
+    html = client.get("/scrape-logs").text
+    # Button, not a text box.
+    assert 'hx-post="/internet-search/run"' in html
+    assert "Search Internet" in html
+    assert 'name="query"' not in html  # the typed box is gone
+
+
+def test_button_triggers_full_matrix_search(client, captured_runs):
+    resp = client.post("/internet-search/run")
     assert resp.status_code == 200
-    assert 'hx-post="/google-search/run"' in resp.text
-    assert 'name="query"' in resp.text
+    assert len(captured_runs) == 1
+    run = captured_runs[0]
+    assert run["slot"] == "manual"
+    # Queries are auto-generated from config — non-empty, and shaped like
+    # `site:{domain} "{role}" "{location}"` using a config role + mapped domain.
+    assert run["queries"], "expected auto-generated queries"
+    joined = "\n".join(run["queries"])
+    assert "site:" in joined
+    assert '"Software Engineer"' in joined or '"Backend Engineer"' in joined  # config roles
+    assert "boards.greenhouse.io" in joined or "jobs.lever.co" in joined  # config ATS domains
 
 
-def test_post_query_triggers_background_search(client, captured_runs):
-    resp = client.post("/google-search/run", data={"query": 'site:jobs.lever.co "AI Engineer"'})
+def test_no_query_input_accepted(client, captured_runs):
+    # Route takes no form fields; posting one is simply ignored (still runs).
+    resp = client.post("/internet-search/run", data={"query": "ignored"})
     assert resp.status_code == 200
-    assert captured_runs == [
-        {"queries": ['site:jobs.lever.co "AI Engineer"'], "slot": "manual"}
-    ]
-
-
-def test_blank_query_does_not_trigger(client, captured_runs):
-    resp = client.post("/google-search/run", data={"query": "   "})
-    assert resp.status_code == 200
-    assert captured_runs == []
+    assert len(captured_runs) == 1
 
 
 def test_search_runs_appear_in_log(client, test_config, captured_runs):
-    # Insert a search_runs row directly, then confirm the page renders it.
     from jobpulse.database import get_connection
 
     conn = get_connection(test_config.database.path)
@@ -56,6 +64,6 @@ def test_search_runs_appear_in_log(client, test_config, captured_runs):
     conn.commit()
     conn.close()
 
-    resp = client.get("/scrape-logs")
-    assert "Google search runs" in resp.text
-    assert "success" in resp.text
+    html = client.get("/scrape-logs").text
+    assert "Google search runs" in html
+    assert "success" in html

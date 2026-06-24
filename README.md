@@ -199,23 +199,29 @@ at once — you'd double-run.
 ## Google Search discovery (Phase 2)
 
 A second discovery channel that finds fresh postings via Google Search with
-`site:` operators (no browser/driver — plain HTTP). Results feed the **same
-`jobs` table** with `source='google_search'`, sharing Phase 1's dedup, location
-filter, blocklist, TTL, and feed. Matched ATS URLs are fetched directly (per-job
-JSON for Greenhouse/Lever, schema.org JSON-LD fallback otherwise).
+`site:` operators (no browser/driver — plain HTTP, past-24h filter). Queries are
+generated **from your config** — every `target_roles` × searchable
+`ats_platforms` × location in [`locations.yaml`](locations.yaml) — as
+`site:{domain} "{role}" "{location}"`. Results feed the **same `jobs` table**
+with `source='google_search'`, sharing Phase 1's dedup, location filter,
+blocklist, TTL, and feed. Matched ATS URLs are fetched directly (per-job JSON for
+Greenhouse/Lever, schema.org JSON-LD fallback otherwise).
 
-- **Manual** — on the **Scrape Logs** page, type an operator query (e.g.
-  `site:boards.greenhouse.io ("AI Engineer" OR "LLM Engineer") "San Francisco"`)
-  and click **Search Google**. Runs in the background; results land in the feed.
+- **Manual** — on the **Scrape Logs** page, click **Search Internet** (no input).
+  It runs a polite background batch of the configured matrix; results land in the
+  feed. ATS without a Phase 2 URL parser (jazzhr, teamtailor, bamboohr, phenom)
+  are skipped and logged.
 - **Scheduled** — `uv run python scripts/run_google_search.py morning|afternoon|evening`
-  generates the slot's queries from `locations.yaml` × role groups × ATS domains.
+  runs the same generator restricted to that slot's ATS tiers + regions.
   See the Phase 2 lines in [`scripts/crontab.example`](scripts/crontab.example).
 
-Tunables live under `google_search:` in `config.yaml` (per-run query cap, inter-query
-delay, failure threshold, cache TTL). The per-run cap is a hard limit; a slot that
-generates more queries records a `partial` run rather than dropping any silently.
-The dashboard adds a **Source** filter, a **Google** badge on those cards, and a
-**Google finds** analytics metric.
+Each run is a **polite capped batch**: it self-stops at
+`google_search.max_queries_per_run` (recorded as a `partial` run, nothing dropped
+silently), and queries are shuffled so repeated clicks / cron slots accumulate
+coverage cheaply against the 24h result cache. Tunables live under
+`google_search:` in `config.yaml` (per-run cap, inter-query delay, failure
+threshold, cache TTL). The dashboard adds a **Source** filter, a **Google** badge
+on those cards, and a **Google finds** analytics metric.
 
 ---
 
