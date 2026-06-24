@@ -47,6 +47,7 @@ jobpulse/
 ├── models.py          # JobRecord — maps jobhive Job → our schema
 ├── scoring.py         # FTS5 bm25 relevance scoring
 ├── scraper.py         # jobhive wrapper, ATS priority order, role filter
+├── google_search/     # Phase 2 — Google Search discovery channel (no-driver)
 ├── ingest.py          # Dedup, insert/update, blocklist, scrape_runs logging
 ├── cleanup.py         # TTL deletion + expire action
 ├── pipeline.py        # Scrape/cleanup orchestration with run-lock
@@ -58,8 +59,9 @@ jobpulse/
 ├── static/            # CSS + JS (HTMX actions, Chart.js)
 └── services/          # jobs / applied / blocklist / analytics business logic
 config.yaml            # All configurable values (roles, ATS list, TTL, schedule…)
+locations.yaml         # Phase 2 — target cities for Google-search queries
 .env.example           # Env overrides (JOBPULSE_CRON_ENABLED, …)
-scripts/               # run_scrape.py, run_cleanup.py, crontab.example
+scripts/               # run_scrape.py, run_google_search.py, run_cleanup.py, crontab.example
 systemd/               # jobpulse.service unit file
 vendor/jobhive/        # Vendored jobhive scraper library + company manifests
 tests/                 # Per-module test suites (pytest)
@@ -96,6 +98,7 @@ target_roles:          # Job titles to match (e.g. "AI Engineer", "Backend Engin
 ats_platforms:         # primary / secondary / low_priority tiers (scrape order)
 schedule:              # 3×/day scrape times + nightly cleanup (PST), timezone
 location:              # primary country (USA default; India = config switch)
+google_search:         # Phase 2 — per-run query cap, delays, cache TTL
 data_lifecycle:        # ttl_days (default 3)
 database: { path }     # SQLite file location
 logging:               # level, file, max_bytes (10MB), backup_count (5)
@@ -193,6 +196,27 @@ See [`scripts/crontab.example`](scripts/crontab.example) for ready-to-use entrie
 (with PST timezone notes). Don't enable both the in-process scheduler and OS cron
 at once — you'd double-run.
 
+## Google Search discovery (Phase 2)
+
+A second discovery channel that finds fresh postings via Google Search with
+`site:` operators (no browser/driver — plain HTTP). Results feed the **same
+`jobs` table** with `source='google_search'`, sharing Phase 1's dedup, location
+filter, blocklist, TTL, and feed. Matched ATS URLs are fetched directly (per-job
+JSON for Greenhouse/Lever, schema.org JSON-LD fallback otherwise).
+
+- **Manual** — on the **Scrape Logs** page, type an operator query (e.g.
+  `site:boards.greenhouse.io ("AI Engineer" OR "LLM Engineer") "San Francisco"`)
+  and click **Search Google**. Runs in the background; results land in the feed.
+- **Scheduled** — `uv run python scripts/run_google_search.py morning|afternoon|evening`
+  generates the slot's queries from `locations.yaml` × role groups × ATS domains.
+  See the Phase 2 lines in [`scripts/crontab.example`](scripts/crontab.example).
+
+Tunables live under `google_search:` in `config.yaml` (per-run query cap, inter-query
+delay, failure threshold, cache TTL). The per-run cap is a hard limit; a slot that
+generates more queries records a `partial` run rather than dropping any silently.
+The dashboard adds a **Source** filter, a **Google** badge on those cards, and a
+**Google finds** analytics metric.
+
 ---
 
 ## Deployment
@@ -239,6 +263,8 @@ Four tables (see [`SCOPE.md`](SCOPE.md) §5 for full column definitions):
 - **`applied_jobs`** — permanent applied tracker, excluded from TTL deletion.
 - **`company_blocklist`** — companies hidden from the feed at display time.
 - **`scrape_runs`** — audit log of every scrape / cleanup run.
+- **`search_runs`** — audit log of Phase 2 Google-search runs.
+- **`search_results_cache`** — short-lived (query, url) cache to skip re-fetching (24h TTL).
 
 ---
 
@@ -255,6 +281,7 @@ Four tables (see [`SCOPE.md`](SCOPE.md) §5 for full column definitions):
 | 6 | Applied / blocklist / scrape-log pages | ✅ |
 | 7 | Analytics dashboard | ✅ |
 | 8 | Cron, deployment & documentation | ✅ |
+| P2 | Google Search discovery channel (engine, manual search, cron, dashboard) | ✅ |
 
 ---
 
