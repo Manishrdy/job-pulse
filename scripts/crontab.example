@@ -18,5 +18,16 @@ CRON_TZ=America/New_York
 # Daily scrape at 05:00 ET (matches the in-process scheduler default)
 0 5 * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_scrape.py daily  >> logs/cron.log 2>&1
 
-# Nightly TTL cleanup at 02:00 ET
+# Nightly TTL cleanup at 02:00 ET (also prunes the Phase 2 search-results cache)
 0 2 * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_cleanup.py        >> logs/cron.log 2>&1
+
+# ── Phase 2: Google Search discovery (no-driver HTTP) ──────────────────────
+# Offset ~1h after the Phase 1 scrape so the two channels don't overlap-thrash.
+# Slots map to ATS tiers + regions (see jobpulse/google_search/query_builder.py):
+#   morning   = primary ATS × USA cities        (~660 queries)
+#   afternoon = primary ATS × India + generic   (~190 queries)
+#   evening   = secondary/low ATS × all regions (large — capped per run;
+#               raise google_search.max_queries_per_run or add slots to cover all)
+0 9  * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_google_search.py morning   >> logs/cron.log 2>&1
+0 14 * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_google_search.py afternoon >> logs/cron.log 2>&1
+0 19 * * *  cd /opt/jobpulse && /usr/bin/uv run python scripts/run_google_search.py evening   >> logs/cron.log 2>&1

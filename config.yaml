@@ -54,6 +54,13 @@ scrape:
   skip_after_runs: 3            # consecutive reachable-but-foreign runs before a company is skipped
   recheck_days: 30              # re-probe skipped companies this often so new in-region hiring is caught
 
+google_search:                  # Phase 2 Google-search discovery channel
+  max_queries_per_run: 700      # hard cap/run; overflow records a 'partial' run (not dropped silently)
+  min_delay: 5.0                # randomized inter-query delay (seconds)
+  max_delay: 10.0
+  max_consecutive_failures: 5   # abort a run after this many failures in a row
+  cache_ttl_hours: 24           # skip re-fetching the same (query, url) within this window
+
 data_lifecycle:
   ttl_days: 3
 

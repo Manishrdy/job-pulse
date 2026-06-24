@@ -122,6 +122,30 @@ class Scrape(BaseModel):
         return self.per_ats_concurrency.get(ats, self.default_ats_concurrency)
 
 
+class GoogleSearch(BaseModel):
+    """Phase 2 Google-search discovery channel knobs."""
+
+    # Hard cap on queries per run (rate_limiter enforces; overflow records a
+    # 'partial' run rather than dropping silently). The evening slot can exceed
+    # this — raise it, add schedule slots, or trim secondary-ATS cities.
+    max_queries_per_run: int = Field(default=700, ge=1)
+    # Randomized delay (seconds) between Google queries.
+    min_delay: float = Field(default=5.0, ge=0)
+    max_delay: float = Field(default=10.0, ge=0)
+    # Abort a run after this many consecutive search failures.
+    max_consecutive_failures: int = Field(default=5, ge=1)
+    # search_results_cache TTL — skip re-fetching the same (query, url) within it.
+    cache_ttl_hours: int = Field(default=24, ge=1)
+
+    @field_validator("max_delay")
+    @classmethod
+    def _max_ge_min(cls, v: float, info) -> float:
+        min_delay = info.data.get("min_delay", 0.0)
+        if v < min_delay:
+            raise ValueError("max_delay must be >= min_delay")
+        return v
+
+
 class AppConfig(BaseModel):
     target_roles: list[str] = Field(min_length=1)
     ats_platforms: ATSPlatforms
@@ -133,6 +157,7 @@ class AppConfig(BaseModel):
     server: Server = Server()
     cron: Cron = Cron()
     scrape: Scrape = Scrape()
+    google_search: GoogleSearch = GoogleSearch()
 
     @field_validator("target_roles")
     @classmethod

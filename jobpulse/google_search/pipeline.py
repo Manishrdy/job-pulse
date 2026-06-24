@@ -135,9 +135,16 @@ def run_google_search_pipeline(
 
     _set_state(running=True)
     conn = get_connection(config.database.path)
+    gs = config.google_search
     client = search_client or GoogleSearchClient()
     fetch_fn: Fetch = fetch or _default_fetch()
-    rl = rate_limiter or RateLimiter(max_queries=len(queries))
+    rl = rate_limiter or RateLimiter(
+        min_delay=gs.min_delay,
+        max_delay=gs.max_delay,
+        max_consecutive_failures=gs.max_consecutive_failures,
+        max_queries=gs.max_queries_per_run,
+    )
+    cache_ttl = gs.cache_ttl_hours
     started = time.monotonic()
 
     queries_executed = urls_found = urls_new = 0
@@ -185,7 +192,7 @@ def run_google_search_pipeline(
                 if match is None:
                     continue  # unrecognized ATS URL
                 norm = match.normalized_url
-                if cache_has(conn, qhash, norm):
+                if cache_has(conn, qhash, norm, ttl_hours=cache_ttl):
                     continue
                 cache_add(conn, qhash, norm)
                 if global_id_exists(conn, match.global_id) or url_exists(conn, norm):

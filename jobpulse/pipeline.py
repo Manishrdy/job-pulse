@@ -27,6 +27,7 @@ from jobpulse.cleanup import cleanup_old_jobs
 from jobpulse.company_yield import load_skip_set, record_company_yields
 from jobpulse.config import AppConfig
 from jobpulse.database import get_connection
+from jobpulse.google_search.dedup import prune_cache
 from jobpulse.ingest import ingest_jobs, record_scrape_run, record_scrape_run_ats
 from jobpulse.location import purge_non_target_location
 from jobpulse.scraper import CompanyEntry, ScrapeFn, run_scrape
@@ -278,6 +279,8 @@ def run_cleanup_pipeline(config: AppConfig) -> dict[str, Any]:
     started = time.monotonic()
     try:
         deleted = cleanup_old_jobs(conn, config.data_lifecycle.ttl_days)
+        # Phase 2: drop stale (query, url) cache rows past their TTL.
+        cache_pruned = prune_cache(conn, ttl_hours=config.google_search.cache_ttl_hours)
         duration = round(time.monotonic() - started, 2)
         record_scrape_run(
             conn,
@@ -290,7 +293,12 @@ def run_cleanup_pipeline(config: AppConfig) -> dict[str, Any]:
             duration_seconds=duration,
             status="success",
         )
-        outcome = {"status": "success", "deleted": deleted, "duration_seconds": duration}
+        outcome = {
+            "status": "success",
+            "deleted": deleted,
+            "cache_pruned": cache_pruned,
+            "duration_seconds": duration,
+        }
         _set_state(last_cleanup=outcome)
         log.info("Cleanup pipeline finished: %s", outcome)
         return outcome
