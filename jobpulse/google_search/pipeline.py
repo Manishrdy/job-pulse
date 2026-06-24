@@ -44,13 +44,25 @@ from jobpulse.google_search.search_client import (
 from jobpulse.google_search.url_parser import match_url
 from jobpulse.ingest import ingest_jobs
 from jobpulse.location import is_target_location
-from jobpulse.models import JobRecord
 
 log = logging.getLogger(__name__)
 
 # Separate from the Phase 1 pipeline lock — Google search may overlap a scrape.
 _search_lock = threading.Lock()
-_state: dict[str, Any] = {"running": False, "last_run": None}
+
+
+def _empty_progress() -> dict[str, Any]:
+    return {
+        "queries_done": 0,
+        "queries_total": 0,
+        "urls_found": 0,
+        "urls_new": 0,
+        "inserted": 0,
+        "current_query": None,
+    }
+
+
+_state: dict[str, Any] = {"running": False, "last_run": None, "progress": _empty_progress()}
 _state_lock = threading.Lock()
 
 _FETCH_HEADERS = {
@@ -65,7 +77,9 @@ _FETCH_HEADERS = {
 
 def get_status() -> dict[str, Any]:
     with _state_lock:
-        return dict(_state)
+        snap = dict(_state)
+        snap["progress"] = dict(_state["progress"])
+        return snap
 
 
 def is_running() -> bool:
@@ -76,6 +90,11 @@ def is_running() -> bool:
 def _set_state(**kw: Any) -> None:
     with _state_lock:
         _state.update(kw)
+
+
+def _set_progress(progress: dict[str, Any]) -> None:
+    with _state_lock:
+        _state["progress"] = dict(progress)
 
 
 def record_search_run(
@@ -177,6 +196,11 @@ def run_google_search_pipeline(
     errors: list[str] = []
     status = "success"
 
+    # Live progress for the dashboard poller (the cap bounds what one run does).
+    progress = _empty_progress()
+    progress["queries_total"] = min(len(queries), gs.max_queries_per_run)
+    _set_progress(progress)
+
     try:
         for i, query in enumerate(queries):
             try:
@@ -219,8 +243,10 @@ def run_google_search_pipeline(
 
             queries_executed += 1
             urls_found += len(urls)
+            progress["queries_done"] = queries_executed
+            progress["urls_found"] = urls_found
+            progress["current_query"] = query
 
-            records: list[JobRecord] = []
             for url in urls:
                 match = match_url(url)
                 if match is None:
@@ -233,18 +259,22 @@ def run_google_search_pipeline(
                     jobs_skipped_dedup += 1
                     continue
                 urls_new += 1
+                progress["urls_new"] = urls_new
                 rec = extract(match, fetch=fetch_fn)
                 if rec is None:
                     continue
                 remote = rec.is_remote == 1 if rec.is_remote is not None else None
                 if not is_target_location(rec.location, rec.country_iso, remote, config.location):
                     continue
-                records.append(rec)
-
-            if records:
-                stats = ingest_jobs(conn, records, target_roles=config.target_roles)
+                # Ingest each job the moment it's extracted, then publish progress —
+                # so it lands in the DB and the live feed immediately (like Phase 1).
+                stats = ingest_jobs(conn, [rec], target_roles=config.target_roles)
                 jobs_inserted += stats.inserted
                 jobs_skipped_blocked += stats.blocked
+                progress["inserted"] = jobs_inserted
+                _set_progress(progress)
+
+            _set_progress(progress)
 
         if errors and status == "success":
             status = "partial"
@@ -281,6 +311,7 @@ def run_google_search_pipeline(
         if search_client is None:
             client.close()
         _set_state(running=False)
+        _set_progress(_empty_progress())
         _search_lock.release()
 
 

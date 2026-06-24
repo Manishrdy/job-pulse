@@ -52,6 +52,37 @@ def test_no_query_input_accepted(client, captured_runs):
     assert len(captured_runs) == 1
 
 
+def test_feed_polls_during_google_search(client, monkeypatch):
+    # While a Google search runs, the feed auto-refreshes (like Phase 1 scrape).
+    monkeypatch.setattr(pages.google_pipeline, "is_running", lambda: True)
+    html = client.get("/").text
+    assert 'hx-trigger="every 4s"' in html
+    assert "Finding jobs" in html
+
+
+def test_scrape_logs_shows_live_search_progress(client, monkeypatch):
+    monkeypatch.setattr(
+        pages.google_pipeline,
+        "get_status",
+        lambda: {
+            "running": True,
+            "progress": {
+                "queries_done": 3,
+                "queries_total": 40,
+                "urls_found": 12,
+                "urls_new": 7,
+                "inserted": 5,
+                "current_query": 'site:jobs.lever.co "AI Engineer" "Austin"',
+            },
+        },
+    )
+    html = client.get("/scrape-logs").text
+    assert "running: internet search" in html
+    assert "URLs found" in html and "Inserted" in html
+    assert "3/40" in html  # queries_done/queries_total
+    assert "Now searching" in html
+
+
 def test_search_runs_appear_in_log(client, test_config, captured_runs):
     from jobpulse.database import get_connection
 

@@ -124,7 +124,7 @@ def test_feed_poller_present_while_running(client: TestClient, test_db: sqlite3.
     monkeypatch.setattr(pipeline, "is_running", lambda: True)
     html = client.get("/").text
     assert 'hx-trigger="every 4s"' in html
-    assert "Scraping" in html
+    assert "Finding jobs" in html  # live banner (covers scrape + google search)
 
 
 def test_partial_jobs_poller_while_running(client: TestClient, monkeypatch: pytest.MonkeyPatch):

@@ -5,7 +5,7 @@
    element, so polling stops on its own. #}
 <div hx-get="/partials/jobs" hx-include="#filters" hx-target="#job-results"
      hx-swap="innerHTML" hx-trigger="every 4s" style="display:none"></div>
-<div class="live-banner"><span class="pulse-dot"></span> Scraping… new jobs appear here automatically</div>
+<div class="live-banner"><span class="pulse-dot"></span> Finding jobs… new jobs appear here automatically</div>
 {% endif %}
 <div class="results-header">
   <span class="count">{{ total }} job{{ '' if total == 1 else 's' }}</span>

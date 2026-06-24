@@ -133,8 +133,9 @@ def _feed_context(request: Request, conn: sqlite3.Connection, config: AppConfig)
         "posted_presets": POSTED_PRESETS,
         "sort_options": SORT_OPTIONS,
         "source_options": SOURCE_OPTIONS,
-        # When a scrape is running, the feed auto-refreshes so new jobs appear live.
-        "scrape_running": pipeline.is_running(),
+        # When a scrape OR a Google search is running, the feed auto-refreshes so
+        # new jobs (from either channel) appear live.
+        "scrape_running": pipeline.is_running() or google_pipeline.is_running(),
     }
 
 

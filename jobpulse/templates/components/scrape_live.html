@@ -53,6 +53,20 @@
 </div>
 {% endif %}
 
+{% if ss.running %}
+<div class="live-progress">
+  <div class="progress-cards">
+    <div class="pcard"><div class="pval">{{ ss.progress.queries_done }}{% if ss.progress.queries_total %}/{{ ss.progress.queries_total }}{% endif %}</div><div class="plabel">Queries</div></div>
+    <div class="pcard"><div class="pval">{{ ss.progress.urls_found }}</div><div class="plabel">URLs found</div></div>
+    <div class="pcard"><div class="pval">{{ ss.progress.urls_new }}</div><div class="plabel">New URLs</div></div>
+    <div class="pcard"><div class="pval">{{ ss.progress.inserted }}</div><div class="plabel">Inserted</div></div>
+  </div>
+  {% if ss.progress.current_query %}
+  <div class="mini-label">Now searching: <code>{{ ss.progress.current_query }}</code></div>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if runs %}
 <div class="table-wrap">
 <table class="data-table logs-table">
