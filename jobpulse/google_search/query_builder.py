@@ -106,6 +106,7 @@ def generate_queries(
     locations: dict[str, list[str]],
     *,
     slot: str | None = None,
+    regions: list[str] | None = None,
     shuffle: bool = False,
     rng: random.Random | None = None,
 ) -> tuple[list[str], list[str]]:
@@ -113,7 +114,9 @@ def generate_queries(
 
     Returns ``(queries, skipped_ats)`` where ``skipped_ats`` are config ATS in
     the selected tiers that have no `site:` domain (and would yield URLs we
-    can't parse). With ``slot=None`` the full matrix is produced. When
+    can't parse). With ``slot=None`` the full matrix is produced. ``regions``
+    (e.g. ``config.google_search.regions``) further limits which location
+    regions are searched — pass ``["usa", "generic"]`` to hold off India. When
     ``shuffle`` is set, the order is randomized with ``rng`` so a capped run /
     repeated clicks sample broadly instead of always re-issuing the first-N.
     """
@@ -121,7 +124,7 @@ def generate_queries(
         raise ValueError(f"Unknown slot {slot!r}; expected one of {sorted(SLOT_PLAN)}")
     plan = SLOT_PLAN.get(slot) if slot else None
     tiers = plan["tiers"] if plan else None
-    regions = plan["regions"] if plan else None
+    slot_regions = plan["regions"] if plan else None
 
     domains: list[AtsDomain] = []
     skipped: list[str] = []
@@ -133,7 +136,14 @@ def generate_queries(
         else:
             domains.append(AtsDomain(ats, site))
 
-    region_keys = [r for r in _REGION_ORDER if regions is None or r in regions]
+    # A region is searched only if the slot allows it AND it's in the configured
+    # region scope (when given).
+    region_keys = [
+        r
+        for r in _REGION_ORDER
+        if (slot_regions is None or r in slot_regions)
+        and (regions is None or r in regions)
+    ]
 
     queries: list[str] = []
     for role in config.target_roles:

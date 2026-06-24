@@ -91,4 +91,5 @@ generic:
   - "Remote"
   - "United States"
   - "USA"
-  - "India"
+  # "India" intentionally omitted — US-only for now (India cities live under the
+  # `india:` region above, re-enable both via google_search.regions in config).

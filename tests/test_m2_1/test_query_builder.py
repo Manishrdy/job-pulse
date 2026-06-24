@@ -110,6 +110,22 @@ def test_invalid_slot_raises(test_config):
         generate_queries(test_config, LOCS, slot="midnight")
 
 
+def test_regions_filter_holds_off_india(test_config):
+    cfg = _config_with_ats(test_config, primary=["greenhouse"], roles=["AI Engineer"])
+    # Default scope excludes India.
+    q, _ = generate_queries(cfg, LOCS, regions=["usa", "generic"])
+    assert any('"San Francisco"' in x for x in q)
+    assert any('"Remote"' in x for x in q)
+    assert not any('"Bangalore"' in x for x in q)  # India held off
+    # Opting India back in restores it.
+    q_in, _ = generate_queries(cfg, LOCS, regions=["usa", "india", "generic"])
+    assert any('"Bangalore"' in x for x in q_in)
+
+
+def test_default_config_regions_exclude_india(test_config):
+    assert "india" not in test_config.google_search.regions
+
+
 # ── shuffle ────────────────────────────────────────────────────────────────
 
 

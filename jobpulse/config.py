@@ -134,6 +134,10 @@ class GoogleSearch(BaseModel):
     headless: bool = False
     # Seconds to let the results page render before scraping (browser engine).
     settle_seconds: float = Field(default=3.0, ge=0)
+    # Location regions to search (from locations.yaml). India is held off by
+    # default — add "india" to also search Indian cities. Functionality stays
+    # intact; this just scopes which regions the query matrix covers.
+    regions: list[str] = Field(default_factory=lambda: ["usa", "generic"])
     # Hard cap on queries per run (rate_limiter enforces; overflow records a
     # 'partial' run rather than dropping silently). Kept small so the "Search
     # Internet" button is a polite batch — the 24h cache + shuffled query order
@@ -155,6 +159,17 @@ class GoogleSearch(BaseModel):
         min_delay = info.data.get("min_delay", 0.0)
         if v < min_delay:
             raise ValueError("max_delay must be >= min_delay")
+        return v
+
+    @field_validator("regions")
+    @classmethod
+    def _valid_regions(cls, v: list[str]) -> list[str]:
+        allowed = {"usa", "india", "generic"}
+        bad = set(v) - allowed
+        if bad:
+            raise ValueError(f"unknown region(s) {sorted(bad)}; allowed: {sorted(allowed)}")
+        if not v:
+            raise ValueError("regions must list at least one of usa/india/generic")
         return v
 
 

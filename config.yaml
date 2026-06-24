@@ -58,6 +58,7 @@ google_search:                  # Phase 2 Google-search discovery channel ("Sear
   engine: "browser"             # "browser" = real Chrome via nodriver (beats rate-limiting); "http" = legacy plain-httpx (gets /sorry/+429)
   headless: false               # run Chrome visibly (headless is more detectable)
   settle_seconds: 3.0           # wait for results to render before scraping
+  regions: ["usa", "generic"]   # which locations.yaml regions to search; add "india" to also search Indian cities
   max_queries_per_run: 40       # polite batch/run; self-stops at the cap (records a 'partial' run). Raise to cover more per run (higher block risk)
   min_delay: 20.0               # randomized inter-query delay (seconds) — generous to avoid rate limits
   max_delay: 45.0
