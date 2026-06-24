@@ -44,6 +44,7 @@ INSERT_COLUMNS: tuple[str, ...] = (
     "language",
     "requisition_id",
     "is_blocked",
+    "source",
 )
 
 
@@ -99,6 +100,8 @@ class JobRecord(BaseModel):
     language: str | None = None
     requisition_id: str | None = None
     is_blocked: int = 0
+    # Discovery channel: 'jobhive' (Phase 1 scrape) or 'google_search' (Phase 2).
+    source: str = "jobhive"
 
     @classmethod
     def from_jobhive(

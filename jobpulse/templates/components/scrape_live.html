@@ -1,6 +1,7 @@
 {# Live region of the Scrape Logs page. Polled every 2s while a run is in
    progress; when idle it renders the controls and stops polling. #}
 {% set st = pipeline_status %}
+{% set ss = search_status %}
 <div class="scrape-controls">
   <span class="cron-status">
     Scheduler:
@@ -8,14 +9,36 @@
     {% else %}<span class="status status-partial_failure">disabled (manual)</span>{% endif %}
   </span>
   {% if st.running %}
-    <span class="status status-partial_failure">running: {{ st.current }}…</span>
-    {# Self-sustaining poller: refreshes this region until the run ends. #}
-    <div hx-get="/partials/scrape-logs" hx-target="#scrape-live" hx-swap="innerHTML"
-         hx-trigger="every 2s" style="display:none"></div>
+    <span class="status status-running">running: {{ st.current }}…</span>
   {% else %}
     <button class="btn btn-apply" hx-post="/scrape/run" hx-target="#scrape-live" hx-swap="innerHTML">Run scrape now</button>
     <button class="btn" hx-post="/cleanup/run" hx-target="#scrape-live" hx-swap="innerHTML">Run cleanup now</button>
   {% endif %}
+  {% if ss.running %}
+    <span class="status status-running">running: google-search…</span>
+  {% endif %}
+  {# Self-sustaining poller: refreshes this region until both channels are idle. #}
+  {% if st.running or ss.running %}
+    <div hx-get="/partials/scrape-logs" hx-target="#scrape-live" hx-swap="innerHTML"
+         hx-trigger="every 2s" style="display:none"></div>
+  {% endif %}
+</div>
+
+{# Manual Google operator-search (Phase 2). Results land in the same feed,
+   tagged source='google_search'. #}
+<div class="google-search-box">
+  <form class="google-search-form" hx-post="/google-search/run"
+        hx-target="#scrape-live" hx-swap="innerHTML">
+    <input type="text" name="query" class="google-search-input"
+           placeholder='site:boards.greenhouse.io ("AI Engineer" OR "LLM Engineer") "San Francisco"'
+           autocomplete="off" {% if ss.running %}disabled{% endif %}>
+    <button type="submit" class="btn btn-apply" {% if ss.running %}disabled{% endif %}>
+      {% if ss.running %}Searching…{% else %}Search Google{% endif %}
+    </button>
+  </form>
+  <div class="google-search-hint">
+    Google operator search (past 24h). Use <code>site:</code>, quoted phrases, and <code>OR</code>.
+  </div>
 </div>
 
 {% if st.running and st.current == 'scrape' %}
@@ -27,6 +50,7 @@
     <div class="pcard"><div class="pval">{{ st.progress.blocked }}</div><div class="plabel">Blocked</div></div>
   </div>
   {% if st.progress.per_ats %}
+  <div class="mini-label">Per-ATS progress</div>
   <table class="mini-table">
     <thead><tr><th>ATS</th><th>Fetch</th><th>Ins</th><th>Upd</th><th>Blk</th><th>Skip</th></tr></thead>
     <tbody>
@@ -97,4 +121,38 @@
   <div class="empty-state">
     <p>No scrape runs recorded yet.</p>
   </div>
+{% endif %}
+
+{# Phase 2 — Google search run log. #}
+{% if search_runs %}
+<div class="mini-label" style="margin-top:1.5rem">Google search runs</div>
+<div class="table-wrap">
+<table class="data-table logs-table">
+  <thead>
+    <tr>
+      <th>Run at</th><th>Slot</th>
+      <th>Queries</th><th>URLs found</th><th>New</th>
+      <th>Inserted</th><th>Dedup</th><th>Blocked</th>
+      <th>Duration</th><th>Status</th><th>Error</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for run in search_runs %}
+    <tr>
+      <td>{{ run.run_at[:19].replace('T', ' ') if run.run_at else '' }}</td>
+      <td>{{ run.schedule_slot or '—' }}</td>
+      <td>{{ run.queries_executed }}</td>
+      <td>{{ run.urls_found }}</td>
+      <td>{{ run.urls_new }}</td>
+      <td>{{ run.jobs_inserted }}</td>
+      <td>{{ run.jobs_skipped_dedup }}</td>
+      <td>{{ run.jobs_skipped_blocked }}</td>
+      <td>{{ '%.1fs'|format(run.duration_seconds) if run.duration_seconds is not none else '—' }}</td>
+      <td><span class="status status-{{ run.status }}">{{ run.status }}</span></td>
+      <td class="error">{{ run.error_msg or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
 {% endif %}

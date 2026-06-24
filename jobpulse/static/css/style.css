@@ -253,6 +253,9 @@ h1, h2, h3 { letter-spacing: -0.015em; color: var(--text); }
 
 .logs-table th, .logs-table td { white-space: nowrap; }
 .logs-table .ats-list, .logs-table .error { color: var(--muted); font-size: 12px; }
+/* Right-align the numeric columns (Fetched…Blocked + Duration = cols 4–9). */
+.logs-table th:nth-child(n+4):nth-child(-n+9),
+.logs-table td:nth-child(n+4):nth-child(-n+9) { text-align: right; font-variant-numeric: tabular-nums; }
 .blocklist-table .company { font-weight: 600; }
 
 /* ---------- Status pills ---------- */
@@ -261,21 +264,53 @@ h1, h2, h3 { letter-spacing: -0.015em; color: var(--text); }
 .status-success { background: var(--green-soft); color: var(--green); }
 .status-partial_failure { background: var(--amber-soft); color: var(--amber); }
 .status-failure { background: var(--danger-soft); color: var(--danger); }
+.status-running { background: var(--accent-soft); color: var(--accent); }
+.status-running::before { animation: pulse-dot 1.4s var(--ease) infinite; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(1.7); } }
+
+/* Small caption above an embedded table/section. */
+.mini-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 4px 0 -2px; }
 
 /* ---------- Per-ATS expander ---------- */
 .per-ats details > summary { cursor: pointer; color: var(--accent); font-size: 12px; font-weight: 500; list-style: none; }
 .per-ats details > summary::-webkit-details-marker { display: none; }
 .per-ats details > summary::before { content: "▸ "; }
 .per-ats details[open] > summary::before { content: "▾ "; }
-.mini-table { margin-top: 10px; border-collapse: collapse; font-size: 12px; box-shadow: none; border-radius: 8px; overflow: hidden; }
-.mini-table th, .mini-table td { padding: 5px 10px; border: 1px solid var(--border); white-space: nowrap; text-align: left; }
-.mini-table thead th { background: var(--surface-2); color: var(--muted); font-weight: 600; }
+.mini-table {
+  width: 100%; margin-top: 12px; border-collapse: separate; border-spacing: 0; font-size: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; box-shadow: var(--shadow-xs);
+}
+/* Horizontal separators only — no spreadsheet grid lines. */
+.mini-table th, .mini-table td { padding: 7px 12px; white-space: nowrap; text-align: left; border-bottom: 1px solid var(--border); }
+.mini-table thead th {
+  background: var(--surface-2); color: var(--muted); font-weight: 600; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.mini-table tbody tr { transition: background .12s var(--ease); }
+.mini-table tbody tr:hover { background: var(--surface-2); }
+.mini-table tbody tr:last-child td { border-bottom: none; }
+/* First column = the ATS name (emphasised); the rest are right-aligned figures. */
+.mini-table th:first-child, .mini-table td:first-child { font-weight: 600; color: var(--text); }
+.mini-table th:not(:first-child), .mini-table td:not(:first-child) {
+  text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2);
+}
 
 /* ---------- Scrape controls + live progress ---------- */
 .scrape-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
 .cron-status { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
 .scrape-controls .btn { margin-left: auto; }
 .scrape-controls .btn + .btn { margin-left: 0; }
+
+/* Manual Google operator-search box (Phase 2). */
+.google-search-box { margin-bottom: 18px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+.google-search-form { display: flex; gap: 10px; align-items: center; }
+.google-search-input { flex: 1; min-width: 0; padding: 9px 12px; font-size: 13px; font-family: var(--mono, ui-monospace, monospace); color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius); }
+.google-search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.google-search-input:disabled { opacity: 0.6; }
+.google-search-form .btn { white-space: nowrap; }
+.google-search-hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.google-search-hint code { font-size: 11px; padding: 1px 5px; background: var(--accent-soft); border-radius: 4px; color: var(--accent-hover); }
 
 .live-progress { margin: 0 0 18px; padding: 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
 .progress-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }

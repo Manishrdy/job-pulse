@@ -23,6 +23,7 @@ from fastapi.templating import Jinja2Templates
 from jobpulse import pipeline
 from jobpulse.config import AppConfig
 from jobpulse.deps import get_config, get_db
+from jobpulse.google_search import pipeline as google_pipeline
 from jobpulse.services import (
     analytics_service,
     applied_service,
@@ -347,12 +348,22 @@ def _scrape_logs_context(request: Request, conn: sqlite3.Connection, config: App
         for ar in ats_rows:
             breakdown.setdefault(ar["run_id"], []).append(dict(ar))
 
+    # Phase 2 Google-search runs (separate channel, own audit table).
+    search_runs = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT * FROM search_runs ORDER BY run_at DESC, id DESC LIMIT 50"
+        ).fetchall()
+    ]
+
     return {
         "request": request,
         "runs": runs,
         "breakdown": breakdown,
+        "search_runs": search_runs,
         "cron_enabled": config.cron.enabled,
         "pipeline_status": pipeline.get_status(),
+        "search_status": google_pipeline.get_status(),
     }
 
 
@@ -402,6 +413,28 @@ def cleanup_run_action(
 ):
     """Manual trigger: run TTL cleanup in the background."""
     pipeline.run_cleanup_in_background(config)
+    return templates.TemplateResponse(
+        request, "components/scrape_live.html", _scrape_logs_context(request, conn, config)
+    )
+
+
+@router.post("/google-search/run", response_class=HTMLResponse)
+def google_search_run_action(
+    request: Request,
+    query: str = Form(...),
+    conn: sqlite3.Connection = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+):
+    """Manual Google operator-search: run one query in the background (M1-8).
+
+    Returns the live region immediately; the run logs to ``search_runs`` and
+    its results land in the same feed as Phase 1 (source='google_search').
+    """
+    query = query.strip()
+    if query:
+        google_pipeline.run_google_search_in_background(
+            config, queries=[query], schedule_slot="manual"
+        )
     return templates.TemplateResponse(
         request, "components/scrape_live.html", _scrape_logs_context(request, conn, config)
     )

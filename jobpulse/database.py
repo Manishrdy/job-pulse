@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     is_blocked      INTEGER NOT NULL DEFAULT 0,
     relevance_score REAL    NOT NULL DEFAULT 0.0,
     language        TEXT,
-    requisition_id  TEXT
+    requisition_id  TEXT,
+    source          TEXT    NOT NULL DEFAULT 'jobhive'
 );
 
 -- Indexes on jobs
@@ -130,6 +131,38 @@ CREATE TABLE IF NOT EXISTS scrape_run_ats (
 );
 CREATE INDEX IF NOT EXISTS idx_scrape_run_ats_run ON scrape_run_ats(run_id);
 
+-- ── Phase 2: Google Search discovery channel ─────────────────────────────
+-- URL index for the Phase 2 URL-based dedup (jobs.url is not UNIQUE, so an
+-- index keeps the existence check cheap as the table grows).
+CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url);
+
+-- Google-search run audit log (parallel to scrape_runs, separate channel).
+CREATE TABLE IF NOT EXISTS search_runs (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at                TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    schedule_slot         TEXT,
+    queries_executed      INTEGER NOT NULL DEFAULT 0,
+    urls_found            INTEGER NOT NULL DEFAULT 0,
+    urls_new              INTEGER NOT NULL DEFAULT 0,
+    jobs_inserted         INTEGER NOT NULL DEFAULT 0,
+    jobs_skipped_dedup    INTEGER NOT NULL DEFAULT 0,
+    jobs_skipped_blocked  INTEGER NOT NULL DEFAULT 0,
+    duration_seconds      REAL,
+    status                TEXT    NOT NULL,
+    error_msg             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_search_runs_run_at ON search_runs(run_at);
+
+-- Short-lived cache of (query, result-URL) pairs so the same Google result
+-- isn't re-fetched within the TTL window. Pruned by the nightly cleanup.
+CREATE TABLE IF NOT EXISTS search_results_cache (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    query_hash    TEXT    NOT NULL,
+    url           TEXT    NOT NULL,
+    discovered_at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    UNIQUE (query_hash, url)
+);
+
 -- Per-company scrape yield, used to skip companies that never produce a job
 -- in the target region (see jobpulse/company_yield.py). Keyed by (ats, slug).
 -- A company is skipped on later runs once it has been *reachable* (returned
@@ -156,6 +189,9 @@ _MIGRATIONS = [
     ("scrape_runs", "jobs_blocked", "INTEGER NOT NULL DEFAULT 0"),
     ("scrape_run_ats", "duration_seconds", "REAL NOT NULL DEFAULT 0"),
     ("scrape_run_ats", "companies_skipped", "INTEGER NOT NULL DEFAULT 0"),
+    # Phase 2: discovery channel of each job. Existing rows backfill to
+    # 'jobhive'; Phase 2 inserts 'google_search'.
+    ("jobs", "source", "TEXT NOT NULL DEFAULT 'jobhive'"),
 ]
 
 FTS_TRIGGERS_SQL = """
