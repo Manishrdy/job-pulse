@@ -33,7 +33,7 @@ from jobpulse.google_search.dedup import (
     query_hash,
     url_exists,
 )
-from jobpulse.google_search.extractor import Fetch, extract
+from jobpulse.google_search.extractor import Fetch, extract, extract_from_html
 from jobpulse.google_search.rate_limiter import RateLimiter, RunAbortedError
 from jobpulse.google_search.search_client import (
     CaptchaError,
@@ -143,6 +143,8 @@ def _make_search_client(config: AppConfig):
             headless=gs.headless,
             settle_seconds=gs.settle_seconds,
             user_data_dir=gs.user_data_dir or None,
+            max_pages=gs.max_pages,
+            tab_settle_seconds=gs.tab_settle_seconds,
         )
     return GoogleSearchClient()
 
@@ -264,7 +266,14 @@ def run_google_search_pipeline(
                     continue
                 urls_new += 1
                 progress["urls_new"] = urls_new
-                rec = extract(match, fetch=fetch_fn)
+                # Browser engine: open the result in a Chrome tab and parse the
+                # rendered page (handles JS-heavy ATS; paces the next search).
+                # HTTP engine: fetch the job page / JSON API via httpx.
+                if hasattr(client, "fetch_html"):
+                    page_html = client.fetch_html(norm)
+                    rec = extract_from_html(match, page_html) if page_html else None
+                else:
+                    rec = extract(match, fetch=fetch_fn)
                 if rec is None:
                     continue
                 remote = rec.is_remote == 1 if rec.is_remote is not None else None

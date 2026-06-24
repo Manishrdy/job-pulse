@@ -59,9 +59,11 @@ google_search:                  # Phase 2 Google-search discovery channel ("Sear
   headless: false               # run Chrome visibly (headless is more detectable)
   settle_seconds: 3.0           # wait for results to render before scraping
   user_data_dir: "~/.jobpulse/chrome-profile"  # persistent Chrome profile — solve a CAPTCHA / sign in ONCE and trust sticks; "" = throwaway profile each run
+  max_pages: 2                  # Google result pages to follow per query (page 2 only if present)
+  tab_settle_seconds: 2.0       # pause per opened result tab (this real browsing paces the next search)
   max_queries_per_run: 40       # polite batch/run; self-stops at the cap (records a 'partial' run). Raise to cover more per run (higher block risk)
-  min_delay: 20.0               # randomized inter-query delay (seconds) — generous to avoid rate limits
-  max_delay: 45.0
+  min_delay: 5.0                # randomized delay between Google searches (tab work already paces; keep modest)
+  max_delay: 12.0
   max_consecutive_failures: 5   # abort a run after this many failures in a row
   cache_ttl_hours: 24           # skip re-fetching the same (query, url) within this window
 

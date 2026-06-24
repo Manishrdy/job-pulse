@@ -25,19 +25,33 @@ class _FakeTab:
     def __init__(self, html: str, url: str):
         self._html = html
         self.url = url
+        self.closed = False
 
     async def get_content(self) -> str:
         return self._html
 
+    async def close(self) -> None:
+        self.closed = True
+
 
 class _FakeBrowser:
-    def __init__(self, html: str, url: str = ""):
+    """Returns ``html`` for any get; or a per-URL map when ``pages`` is given."""
+
+    def __init__(self, html: str = "", url: str = "", *, pages: dict[str, str] | None = None):
         self._html = html
         self._url = url
+        self._pages = pages or {}
         self.stopped = False
+        self.opened: list[str] = []
 
-    async def get(self, url: str) -> _FakeTab:
-        return _FakeTab(self._html, self._url or url)
+    async def get(self, url: str, new_tab: bool = False, **_kw) -> _FakeTab:
+        self.opened.append(url)
+        html = self._html
+        for needle, page_html in self._pages.items():
+            if needle in url:
+                html = page_html
+                break
+        return _FakeTab(html, self._url or url)
 
     def stop(self) -> None:
         self.stopped = True
@@ -60,6 +74,14 @@ def test_build_url_has_time_and_params():
     assert "num=20" in url
     assert "hl=en" in url
     assert "q=site%3Ajobs.lever.co" in url  # url-encoded query
+    assert "start=" not in url     # page 0 has no start
+    c.close()
+
+
+def test_build_url_pagination_start():
+    c = BrowserSearchClient(settle_seconds=0)
+    assert "start=10" in c._build_url("q", page=1)
+    assert "start=20" in c._build_url("q", page=2)
     c.close()
 
 
@@ -83,6 +105,51 @@ def test_close_stops_browser():
     c.search("q")
     c.close()
     assert browser.stopped
+
+
+# ── pagination ─────────────────────────────────────────────────────────────
+
+_PAGE1 = (
+    '<a href="https://boards.greenhouse.io/acme/jobs/1">A</a>'
+    '<a id="pnnext" href="/search?start=10">Next</a>'  # page 2 exists
+)
+_PAGE2 = '<a href="https://jobs.lever.co/acme/two">B</a>'  # no pnnext → last page
+
+
+def test_search_follows_page_two():
+    browser = _FakeBrowser(pages={"start=10": _PAGE2, "google.com/search": _PAGE1})
+    c = _client_with(browser, max_pages=2)
+    try:
+        urls = c.search("q")
+    finally:
+        c.close()
+    assert "https://boards.greenhouse.io/acme/jobs/1" in urls   # page 1
+    assert "https://jobs.lever.co/acme/two" in urls             # page 2
+    assert sum("start=10" in u for u in browser.opened) == 1    # fetched page 2 once
+
+
+def test_search_stops_when_no_next_page():
+    browser = _FakeBrowser(pages={"google.com/search": _PAGE2})  # page 1 has no pnnext
+    c = _client_with(browser, max_pages=3)
+    try:
+        c.search("q")
+    finally:
+        c.close()
+    assert not any("start=10" in u for u in browser.opened)  # never fetched page 2
+
+
+# ── fetch_html (per-result tab) ────────────────────────────────────────────
+
+
+def test_fetch_html_opens_tab_returns_content():
+    browser = _FakeBrowser("<html><title>Job</title></html>")
+    c = _client_with(browser)
+    try:
+        html = c.fetch_html("https://boards.greenhouse.io/acme/jobs/1")
+    finally:
+        c.close()
+    assert "<title>Job</title>" in html
+    assert "boards.greenhouse.io/acme/jobs/1" in browser.opened[-1]
 
 
 # ── block detection ────────────────────────────────────────────────────────

@@ -151,13 +151,17 @@ def _ld_location(posting: dict) -> str | None:
     return joined or None
 
 
-def _extract_html(match: MatchedUrl, fetch: Fetch) -> JobRecord | None:
+def extract_from_html(match: MatchedUrl, page_html: str) -> JobRecord | None:
+    """Build a JobRecord from a job page's (already-fetched) HTML.
+
+    Prefers the schema.org ``JobPosting`` JSON-LD block most ATS embed, then
+    falls back to the page ``<title>``. Used by the browser engine (which
+    renders the page in a real Chrome tab — so JS-heavy ATS like Ashby/Workday
+    work) and shared by the HTTP fallback.
+    """
     from bs4 import BeautifulSoup
 
-    resp = fetch(match.normalized_url)
-    if resp.status_code != 200:
-        return None
-    posting = _find_job_posting_ld(resp.text)
+    posting = _find_job_posting_ld(page_html)
     if posting is not None:
         org = posting.get("hiringOrganization")
         company = org.get("name") if isinstance(org, dict) else None
@@ -172,9 +176,16 @@ def _extract_html(match: MatchedUrl, fetch: Fetch) -> JobRecord | None:
             posted_at=posting.get("datePosted"),
         )
     # Last resort: the page <title>.
-    soup = BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(page_html, "html.parser")
     title = soup.title.get_text(strip=True) if soup.title else None
     return _build_record(match, title=title, company=match.company)
+
+
+def _extract_html(match: MatchedUrl, fetch: Fetch) -> JobRecord | None:
+    resp = fetch(match.normalized_url)
+    if resp.status_code != 200:
+        return None
+    return extract_from_html(match, resp.text)
 
 
 # ATS with a dedicated JSON extractor; the rest use the HTML fallback.

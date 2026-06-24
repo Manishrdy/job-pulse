@@ -188,6 +188,47 @@ def test_query_budget_cap(test_db: sqlite3.Connection, test_config):
     assert client.calls == ["q1"]
 
 
+class FakeBrowserClient:
+    """Search client with a fetch_html capability (browser engine path)."""
+
+    def __init__(self, results, pages):
+        self._results = results
+        self._pages = pages
+        self.fetched: list[str] = []
+
+    def search(self, query):
+        return list(self._results)
+
+    def fetch_html(self, url):
+        self.fetched.append(url)
+        return self._pages.get(url)
+
+    def close(self):
+        pass
+
+
+def test_browser_engine_extracts_from_tab_html(test_db: sqlite3.Connection, test_config):
+    import json
+
+    ld = {
+        "@type": "JobPosting",
+        "title": "Software Engineer",
+        "hiringOrganization": {"name": "Anthropic"},
+        "jobLocation": {"address": {"addressLocality": "San Francisco", "addressRegion": "CA"}},
+    }
+    page = f'<script type="application/ld+json">{json.dumps(ld)}</script>'
+    client = FakeBrowserClient([GH_URL], {GH_URL: page})
+    out = _run(test_config, queries=["q"], search_client=client, fetch=lambda _u: None)
+
+    assert out["jobs_inserted"] == 1
+    assert client.fetched == [GH_URL]  # extraction went through the browser tab
+    row = test_db.execute(
+        "SELECT title, location, source FROM jobs WHERE global_id='greenhouse:12345'"
+    ).fetchone()
+    assert row["title"] == "Software Engineer"
+    assert row["source"] == "google_search"
+
+
 def test_concurrent_run_skipped(test_config, monkeypatch):
     # Simulate an in-progress run by holding the lock.
     assert gs_pipeline._search_lock.acquire(blocking=False)

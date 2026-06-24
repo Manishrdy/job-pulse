@@ -139,6 +139,35 @@ def test_malformed_json_ld_falls_back_to_title():
     assert rec.title == "Fallback Title"
 
 
+def test_extract_from_html_directly():
+    """The browser engine path: build a record straight from page HTML."""
+    from jobpulse.google_search.extractor import extract_from_html
+
+    match = match_url("https://careers.icims.com/jobs/45678/swe/job")
+    ld = {
+        "@context": "https://schema.org",
+        "@type": "JobPosting",
+        "title": "Staff Engineer",
+        "description": "<p>Lead</p>",
+        "hiringOrganization": {"@type": "Organization", "name": "Acme"},
+        "jobLocation": {"@type": "Place", "address": {"addressLocality": "Seattle"}},
+    }
+    page = f'<script type="application/ld+json">{json.dumps(ld)}</script>'
+    rec = extract_from_html(match, page)
+    assert rec.title == "Staff Engineer"
+    assert rec.company == "Acme"
+    assert rec.location == "Seattle"
+    assert rec.source == "google_search"
+
+
+def test_extract_from_html_title_fallback():
+    from jobpulse.google_search.extractor import extract_from_html
+
+    match = match_url("https://careers.icims.com/jobs/45678/swe/job")
+    rec = extract_from_html(match, "<html><head><title>SRE - Careers</title></head></html>")
+    assert rec.title == "SRE - Careers"
+
+
 def test_fetch_error_returns_none():
     match = match_url("https://boards.greenhouse.io/anthropic/jobs/12345")
 

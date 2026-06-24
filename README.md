@@ -216,8 +216,12 @@ ATS use a single `"United States"` query per role (per-city just multiplies
 near-identical queries); only **Workday** searches per US city from
 [`locations.yaml`](locations.yaml). Results feed the **same `jobs` table**
 with `source='google_search'`, sharing Phase 1's dedup, location filter,
-blocklist, TTL, and feed. Matched ATS URLs are fetched directly (per-job JSON for
-Greenhouse/Lever, schema.org JSON-LD fallback otherwise).
+blocklist, TTL, and feed. **Browser engine:** each result is opened in its own
+Chrome tab and the rendered page is parsed (schema.org `JobPosting` JSON-LD →
+`<title>`), which also handles JS-heavy ATS (Ashby/Workday); the search follows
+Google page 2 when present. That tab work (~10–30s/search) is the main pacing —
+the inter-search delay is kept small on purpose. (The legacy `http` engine
+fetches job pages via httpx with per-ATS JSON for Greenhouse/Lever instead.)
 
 - **Manual** — on the **Scrape Logs** page, click **Search Internet** (no input).
   It runs a polite background batch of the configured matrix; results land in the

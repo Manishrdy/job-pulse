@@ -48,19 +48,31 @@ class BrowserSearchClient:
         settle_seconds: float = 3.0,
         num_results: int = 20,
         user_data_dir: str | None = None,
+        max_pages: int = 2,
+        tab_settle_seconds: float = 2.0,
     ) -> None:
         self._headless = headless
         self._settle = settle_seconds
         self._num = num_results
         self._user_data_dir = user_data_dir
+        self._max_pages = max(1, max_pages)
+        self._tab_settle = tab_settle_seconds
         self._loop = asyncio.new_event_loop()
         self._browser = None  # nodriver.Browser, started lazily on first search
 
-    def _build_url(self, query: str) -> str:
-        return (
+    def _build_url(self, query: str, page: int = 0) -> str:
+        url = (
             "https://www.google.com/search?"
             f"q={quote_plus(query)}&num={self._num}&hl=en&tbs=qdr:d"
         )
+        if page:
+            url += f"&start={page * 10}"
+        return url
+
+    @staticmethod
+    def _has_next_page(html: str) -> bool:
+        # Google's "Next" pagination control.
+        return 'id="pnnext"' in html or 'aria-label="Next page"' in html
 
     def _detect_block(self, html: str, url: str) -> None:
         if "/sorry/" in (url or "") or "sorry.google.com" in (url or ""):
@@ -88,17 +100,49 @@ class BrowserSearchClient:
 
     async def _search_async(self, query: str) -> list[str]:
         browser = await self._ensure_browser()
-        tab = await browser.get(self._build_url(query))
-        await asyncio.sleep(self._settle)  # let results render
-        html = await tab.get_content()
-        self._detect_block(html, getattr(tab, "url", "") or "")
-        return parse_result_urls(html)
+        seen: set[str] = set()
+        out: list[str] = []
+        for page in range(self._max_pages):
+            tab = await browser.get(self._build_url(query, page))
+            await asyncio.sleep(self._settle)  # let results render
+            html = await tab.get_content()
+            self._detect_block(html, getattr(tab, "url", "") or "")
+            fresh = [u for u in parse_result_urls(html) if u not in seen]
+            seen.update(fresh)
+            out.extend(fresh)
+            if not fresh or not self._has_next_page(html):
+                break  # no page 2 (or it added nothing) → done
+        return out
 
     def search(self, query: str) -> list[str]:
-        """Run one Google search in real Chrome, return organic result URLs."""
+        """Run one Google search (following page 2 when present); return result URLs."""
         urls = self._loop.run_until_complete(self._search_async(query))
         log.info("Browser search %r → %d result URLs", query, len(urls))
         return urls
+
+    async def _fetch_html_async(self, url: str) -> str:
+        browser = await self._ensure_browser()
+        tab = await browser.get(url, new_tab=True)  # open the result in its own tab
+        await asyncio.sleep(self._tab_settle)  # minimal pause to let it render
+        html = await tab.get_content()
+        try:
+            await tab.close()
+        except Exception:  # closing is best-effort
+            log.debug("Failed to close job tab for %s", url, exc_info=True)
+        return html
+
+    def fetch_html(self, url: str) -> str | None:
+        """Open one result URL in a Chrome tab and return its rendered HTML.
+
+        Going through the browser (same trusted session) means JS-heavy ATS
+        pages render, and the time spent here naturally paces the next Google
+        search. Returns ``None`` on any failure (caller skips the job).
+        """
+        try:
+            return self._loop.run_until_complete(self._fetch_html_async(url))
+        except Exception as exc:
+            log.warning("Browser fetch failed for %s: %s", url, exc)
+            return None
 
     def close(self) -> None:
         try:
